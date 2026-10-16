@@ -106,7 +106,7 @@ Contributions are welcome. Please open an issue or pull request on GitHub.
 
 ## License
 
-This module is licensed under the GNU General Public License, version 3. See the `LICENSE` file for details.
+This module is licensed under the GNU General Public License, version 3 or any later version (`GPL-3.0-or-later`), matching OpenEMR. See the `LICENSE` file for details.
 
 ## Author
 
