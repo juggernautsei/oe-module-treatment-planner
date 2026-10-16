@@ -1,0 +1,167 @@
+{% extends 'base.twig' %}
+
+{% block title %}
+    {{ 'AI Treatment Planner Dashboard'|xlt }}
+{% endblock %}
+
+{% block head %}
+    {{ setupHeader(['common','jquery-ui', 'jquery-ui-base', 'select2']) }}
+{% endblock %}
+
+{% block content %}
+    <!-- Breadcrumb Navigation -->
+    <nav aria-label="breadcrumb" style="margin-bottom: 20px;">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ webroot }}/interface/patient_file/encounter/forms.php?encounter={{ encounter ?? '' }}">{{ 'Return to Encounter'|xlt }}</a></li>
+            <li class="breadcrumb-item active" aria-current="page">{{ 'AI Treatment Planner'|xlt }}</li>
+        </ol>
+    </nav>
+
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h2><i class="fa fa-brain text-primary"></i> {{ 'AI Treatment Planner Dashboard'|xlt }}</h2>
+                <div class="btn-group">
+                    <a href="{{ webroot }}/interface/modules/custom_modules/oe-module-treatment-planner/public/index.php/treatment/create"
+                       class="btn btn-primary">
+                        <i class="fa fa-plus"></i> {{ 'Create AI Treatment Plan'|xlt }}
+                    </a>
+                </div>
+            </div>
+
+            <div class="alert alert-info">
+                <i class="fa fa-info-circle"></i>
+                {{ 'Welcome to the AI-powered Treatment Planner! Generate comprehensive, evidence-based treatment plans using advanced AI analysis of patient assessment data.'|xlt }}
+            </div>
+
+            <!-- Quick Stats Row
+            <div class="row mb-4">
+                <div class="col-md-3">
+                    <div class="card bg-primary text-white">
+                        <div class="card-body text-center">
+                            <i class="fa fa-clipboard-list fa-2x mb-2"></i>
+                            <h4>{{ stats.total_plans ?? 0 }}</h4>
+                            <small>{{ 'Total Plans Created'|xlt }}</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card bg-success text-white">
+                        <div class="card-body text-center">
+                            <i class="fa fa-check-circle fa-2x mb-2"></i>
+                            <h4>{{ stats.active_plans ?? 0 }}</h4>
+                            <small>{{ 'Active Plans'|xlt }}</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card bg-info text-white">
+                        <div class="card-body text-center">
+                            <i class="fa fa-robot fa-2x mb-2"></i>
+                            <h4>{{ stats.ai_generated ?? 0 }}</h4>
+                            <small>{{ 'AI Generated'|xlt }}</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card bg-warning text-white">
+                        <div class="card-body text-center">
+                            <i class="fa fa-clock fa-2x mb-2"></i>
+                            <h4>{{ stats.recent_plans ?? 0 }}</h4>
+                            <small>{{ 'This Week'|xlt }}</small>
+                        </div>
+                    </div>
+                </div>
+            </div> -->
+
+            <!-- Main Action Cards -->
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="card border-primary h-100">
+                        <div class="card-header bg-primary text-white">
+                            <h5 class="mb-0"><i class="fa fa-plus-circle"></i> {{ 'Create New Plan'|xlt }}</h5>
+                        </div>
+                        <div class="card-body text-center d-flex flex-column">
+                            <i class="fa fa-brain fa-4x text-primary mb-3"></i>
+                            <h6>{{ 'AI-Powered Treatment Planning'|xlt }}</h6>
+                            <p class="text-muted flex-grow-1">{{ 'Generate comprehensive treatment plans using AI analysis of patient assessment data, diagnoses, and clinical observations.'|xlt }}</p>
+                            <a href="{{ webroot }}/interface/modules/custom_modules/oe-module-treatment-planner/public/index.php/treatment/create"
+                               class="btn btn-primary btn-lg">
+                                <i class="fa fa-plus"></i> {{ 'Create Treatment Plan'|xlt }}
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="card border-info h-100">
+                        <div class="card-header bg-info text-white">
+                            <h5 class="mb-0"><i class="fa fa-list"></i> {{ 'Manage Plans'|xlt }}</h5>
+                        </div>
+                        <div class="card-body text-center d-flex flex-column">
+                            <i class="fa fa-clipboard-list fa-4x text-info mb-3"></i>
+                            <h6>{{ 'View & Edit Treatment Plans'|xlt }}</h6>
+                            <p class="text-muted flex-grow-1">{{ 'Browse, search, and manage existing treatment plans. Edit plans, update status, and track progress.'|xlt }}</p>
+                            <a href="{{ webroot }}/interface/modules/custom_modules/oe-module-treatment-planner/public/index.php/treatment/list"
+                               class="btn btn-info btn-lg">
+                                <i class="fa fa-list"></i> {{ 'View All Plans'|xlt }}
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Activity Section -->
+            {% if recent_plans %}
+            <div class="row mt-4">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0"><i class="fa fa-history"></i> {{ 'Recent Treatment Plans'|xlt }}</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>{{ 'Patient'|xlt }}</th>
+                                            <th>{{ 'Plan Title'|xlt }}</th>
+                                            <th>{{ 'Status'|xlt }}</th>
+                                            <th>{{ 'Created'|xlt }}</th>
+                                            <th>{{ 'Actions'|xlt }}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for plan in recent_plans %}
+                                        <tr>
+                                            <td>{{ plan.patient_name }}</td>
+                                            <td>{{ plan.title }}</td>
+                                            <td>
+                                                <span class="badge badge-{{ plan.status == 'active' ? 'success' : (plan.status == 'completed' ? 'primary' : 'secondary') }}">
+                                                    {{ plan.status|title }}
+                                                </span>
+                                            </td>
+                                            <td>{{ plan.created_date|date('M j, Y') }}</td>
+                                            <td>
+                                                <a href="{{ webroot }}/interface/modules/custom_modules/oe-module-treatment-planner/public/index.php/treatment/view?id={{ plan.id }}"
+                                                   class="btn btn-sm btn-outline-primary">
+                                                    <i class="fa fa-eye"></i>
+                                                </a>
+                                                <a href="{{ webroot }}/interface/modules/custom_modules/oe-module-treatment-planner/public/index.php/treatment/edit?id={{ plan.id }}"
+                                                   class="btn btn-sm btn-outline-secondary">
+                                                    <i class="fa fa-edit"></i>
+                                                </a>
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}

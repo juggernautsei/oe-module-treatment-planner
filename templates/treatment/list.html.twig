@@ -1,0 +1,92 @@
+{% extends "treatment/base.html.twig" %}
+
+{% block treatment_content %}
+<div class="container treatment-plan-container">
+    <div class="row">
+        <div class="col-12">
+            <h2>{{ "Treatment Plans"|xlt }}</h2>
+            
+            {% if error %}
+                <div class="alert alert-danger">
+                    {{ error|xlt }}
+                </div>
+            {% endif %}
+            
+            <div class="card">
+                <div class="card-header">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">{{ "Patient Treatment Plans"|xlt }}</h5>
+                        <a href="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/treatment/create?pid={{ pid }}&encounter={{ encounter }}" class="btn btn-primary btn-sm">
+                            <i class="fa fa-plus"></i> {{ "New Treatment Plan"|xlt }}
+                        </a>
+                    </div>
+                </div>
+                <div class="card-body">
+                    {% if plans|length > 0 %}
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>{{ "Date Created"|xlt }}</th>
+                                        <th>{{ "Encounter Date"|xlt }}</th>
+                                        <th>{{ "Version"|xlt }}</th>
+                                        <th>{{ "Status"|xlt }}</th>
+                                        <th>{{ "Provider"|xlt }}</th>
+                                        <th>{{ "Actions"|xlt }}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for plan in plans %}
+                                        <tr>
+                                            <td>{{ plan.date_created|dateToTime|date('Y-m-d') }}</td>
+                                            <td>{{ plan.encounter_date|shortDate }}</td>
+                                            <td>{{ plan.version|text }}</td>
+                                            <td>
+                                                <span class="status-badge status-{{ plan.status|attr }}">
+                                                    {{ statuses[plan.status]|xlt }}
+                                                </span>
+                                            </td>
+                                            <td>{{ plan.provider_fname|text }} {{ plan.provider_lname|text }}</td>
+                                            <td>
+                                                <a href="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/treatment/view?id={{ plan.id }}" 
+                                                   class="btn btn-sm btn-info" title="{{ 'View'|xla }}">
+                                                    <i class="fa fa-eye"></i>
+                                                </a>
+                                                {% if plan.status != 'finalized' %}
+                                                    <a href="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/treatment/edit?id={{ plan.id }}" 
+                                                       class="btn btn-sm btn-primary" title="{{ 'Edit'|xla }}">
+                                                        <i class="fa fa-edit"></i>
+                                                    </a>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="alert alert-info">
+                            {{ "No treatment plans found for this patient"|xlt }}
+                        </div>
+                    {% endif %}
+                </div>
+                <div class="card-footer">
+                    <a href="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/dashboard" class="btn btn-secondary">
+                        {{ "Return to Dashboard"|xlt }}
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Add sorting, filtering or other enhancements if needed
+    const table = document.querySelector('table');
+    if (table) {
+        // Future enhancement: Add table sorting functionality
+    }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,19 @@
+<nav class="navbar navbar-expand-lg navbar-light bg-light">
+    <a class="navbar-brand" href="{{ "Rapid Charge" | xl }}"></a>
+    <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="navbarNav">
+        <ul class="navbar-nav">
+            <li class="nav-item {% if current_page == 'home' %}active{% endif %}">
+                <a class="nav-link {% if current_page == 'home' %}active{% endif %}" href="../index.php/home">{{ "Home" | xl }}</a>
+            </li>
+            <li class="nav-item {% if current_page == 'about' %}active{% endif %}">
+                <a class="nav-link {% if current_page == 'about' %}active{% endif %}" href="../index.php/about">{{ "Help" | xl }}</a>
+            </li>
+            <li class="nav-item {% if current_page == 'contact' %}active{% endif %}">
+                <a class="nav-link {% if current_page == 'contact' %}active{% endif %}" href="../index.php/contact">{{ "Support" | xl }}</a>
+            </li>
+        </ul>
+    </div>
+</nav>

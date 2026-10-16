@@ -1,0 +1,146 @@
+{% include 'core_base.html.twig' %}
+
+{% block header %}
+{{ setupHeader(['opener']) }}
+<title>{{ "Treatment Planner Configuration"|xlt }}</title>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-3">
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h2>{{ "Treatment Planner Configuration"|xlt }}</h2>
+                </div>
+                <div class="card-body">
+                    {% if error_message %}
+                        <div class="alert alert-danger">
+                            {{ error_message|xlt }}
+                        </div>
+                    {% endif %}
+                    
+                    {% if success_message %}
+                        <div class="alert alert-success">
+                            {{ success_message|xlt }}
+                        </div>
+                    {% endif %}
+                    
+                    {% if test_connection_result %}
+                        <div class="alert alert-{{ test_connection_result.success ? 'success' : 'danger' }}">
+                            <strong>{{ "API Connection Test"|xlt }}:</strong> {{ test_connection_result.message|xlt }}
+                        </div>
+                    {% endif %}
+                    
+                    <form method="post" action="" id="config-form">
+                        <input type="hidden" name="csrf_token_form" value="{{ csrf_token_form|attr }}">
+                        
+                        <div class="form-group">
+                            <label for="api-key">{{ "OpenAI API Key"|xlt }}</label>
+                            <div class="input-group">
+                                <input type="password" 
+                                       class="form-control" 
+                                       id="api-key" 
+                                       name="api_key" 
+                                       value="{{ api_key|attr }}" 
+                                       placeholder="{{ "Enter your OpenAI API Key"|xla }}">
+                                <div class="input-group-append">
+                                    <button class="btn btn-secondary" 
+                                            type="button" 
+                                            id="toggle-password" 
+                                            title="{{ "Toggle Visibility"|xla }}">
+                                        <i class="fa fa-eye"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <small class="form-text text-muted">
+                                {{ "Your API key will be encrypted before storing in the database"|xlt }}
+                            </small>
+                            {% if api_key_configured %}
+                                <div class="text-success mt-1">
+                                    <i class="fa fa-check-circle"></i> {{ "API Key is configured"|xlt }}
+                                </div>
+                            {% endif %}
+                        </div>
+
+                        <div class="form-group mt-4">
+                            <h4>{{ "API Settings"|xlt }}</h4>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <label for="model-selection">{{ "GPT Model"|xlt }}</label>
+                                    <select class="form-control" id="model-selection" name="model">
+                                        <option value="gpt-4" {{ model == 'gpt-4' ? 'selected' : '' }}>GPT-4</option>
+                                        <option value="gpt-3.5-turbo" {{ model == 'gpt-3.5-turbo' ? 'selected' : '' }}>GPT-3.5 Turbo</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="temperature">{{ "Temperature"|xlt }}: <span id="temperature-value">{{ temperature }}</span></label>
+                                    <input type="range" class="form-control-range" id="temperature" 
+                                           name="temperature" min="0" max="1" step="0.1" value="{{ temperature }}">
+                                    <div class="d-flex justify-content-between">
+                                        <small>{{ "More Precise"|xlt }}</small>
+                                        <small>{{ "More Creative"|xlt }}</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group mt-4">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <button type="submit" class="btn btn-primary">{{ "Save Configuration"|xlt }}</button>
+                                    {% if api_key_configured %}
+                                        <button type="submit" name="test_connection" value="1" class="btn btn-info ml-2">
+                                            {{ "Test Connection"|xlt }}
+                                        </button>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="card-footer">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h5>{{ "Usage Information"|xlt }}</h5>
+                            <p>{{ "This module uses OpenAI's API to generate treatment plans based on clinical observations."|xlt }}</p>
+                            <p>{{ "API calls are made only when generating a new treatment plan, with usage tracked per provider."|xlt }}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <h5>{{ "Getting Started"|xlt }}</h5>
+                            <p>{{ "After configuring your API key, you can access the treatment planner from the patient encounter."|xlt }}</p>
+                            <p>{{ "Choose the appropriate template for your patient's condition to generate the most relevant treatment plan."|xlt }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Toggle password visibility
+    document.getElementById('toggle-password').addEventListener('click', function() {
+        const apiKeyInput = document.getElementById('api-key');
+        const type = apiKeyInput.getAttribute('type') === 'password' ? 'text' : 'password';
+        apiKeyInput.setAttribute('type', type);
+        
+        // Toggle eye icon
+        const eyeIcon = this.querySelector('i');
+        if (type === 'password') {
+            eyeIcon.classList.remove('fa-eye-slash');
+            eyeIcon.classList.add('fa-eye');
+        } else {
+            eyeIcon.classList.remove('fa-eye');
+            eyeIcon.classList.add('fa-eye-slash');
+        }
+    });
+    
+    // Update temperature value display
+    document.getElementById('temperature').addEventListener('input', function() {
+        document.getElementById('temperature-value').textContent = this.value;
+    });
+});
+</script>
+{% endblock %}

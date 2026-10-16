@@ -1,0 +1,271 @@
+{% extends "treatment/base.html.twig" %}
+
+{% block treatment_content %}
+    <div class="container treatment-plan-container">
+        <div class="row">
+            <div class="col-12">
+                <h2>{{ "Create Treatment Plan"|xlt }}</h2>
+
+                {% if error %}
+                    <div class="alert alert-danger">
+                        {{ error|xlt }}
+                    </div>
+                {% endif %}
+
+                {% if plan %}
+                    <div class="alert alert-success">
+                        {{ "Treatment plan generated successfully!"|xlt }}
+                        <a href="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/treatment/edit?id={{ plan.id }}" class="btn btn-primary btn-sm ml-2">
+                            {{ "Edit Plan"|xlt }}
+                        </a>
+                        <a href="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/treatment/view?id={{ plan.id }}" class="btn btn-info btn-sm">
+                            {{ "View Plan"|xlt }}
+                        </a>
+                    </div>
+
+                    <div class="card mb-4">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h3>{{ "Generated Treatment Plan"|xlt }}</h3>
+                            <form method="post" action="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/treatment/finalize" style="display: inline;">
+                                <input type="hidden" name="csrf_token_form" value="{{ csrf_token_form|attr }}">
+                                <input type="hidden" name="plan_id" value="{{ plan.id|attr }}">
+                                <button type="submit" class="btn btn-success btn-sm"
+                                        onclick="return confirm('{{ "Are you sure you want to finalize this treatment plan? It will appear in the patient summary."|xlt }}');">
+                                    <i class="fas fa-check-circle"></i> {{ "Finalize Treatment Plan"|xlt }}
+                                </button>
+                            </form>
+                        </div>
+                        <div class="card-body">
+                            <div class="treatment-content">
+                                {{ plan.content|nl2br }}
+                            </div>
+                        </div>
+                        <div class="card-footer">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <small class="text-muted">
+                                        {{ "Generated with"|xlt }} {{ plan.metadata.model|text }} |
+                                        {{ "Tokens used"|xlt }}: {{ plan.metadata.total_tokens|text }}
+                                    </small>
+                                </div>
+                                <div class="col-md-6 text-right">
+                                    <small class="text-info">
+                                        <i class="fas fa-info-circle"></i>
+                                        {{ "Click 'Finalize' to save to patient summary, or 'Edit' to modify first"|xlt }}
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                {% else %}
+                    <form method="post" action="" id="observation-form">
+                        <input type="hidden" name="csrf_token_form" value="{{ csrf_token_form|attr }}">
+                        <input type="hidden" name="pid" value="{{ pid|attr }}">
+                        <input type="hidden" name="encounter" value="{{ encounter|attr }}">
+
+                        <div class="form-group">
+                            <label for="observations">{{ "Clinical Observations & Additional Notes"|xlt }}</label>
+
+                            <!-- Voice Controls Container -->
+                            <div id="voice-controls" class="mb-2" style="display: none;">
+                                <button type="button" id="voice-button" class="btn btn-secondary btn-sm" title="{{ 'Click to start voice input'|xlt }}">
+                                    🎤 {{ "Voice Input"|xlt }}
+                                </button>
+                                <button type="button" id="ai-button" class="btn btn-primary btn-sm ml-2" title="{{ 'Improve text with AI'|xlt }}">
+                                    {{ "Revise with AI"|xlt }}
+                                </button>
+                            </div>
+
+                            <textarea class="form-control" id="observations" name="observations" rows="8"
+                                      placeholder="{{ 'Enter any additional clinical observations, notes, or specific treatment considerations not captured in the assessment form...'|xlt }}"></textarea>
+                            <small class="form-text text-muted">
+                                {{ "The treatment plan will be generated based on the patient's assessment data and diagnoses. Add any additional observations or specific treatment preferences here."|xlt }}
+                            </small>
+                        </div>
+
+                        <div class="form-group mt-4">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <button type="submit" name="submit_observations" value="1" class="btn btn-primary">
+                                        {{ "Generate Treatment Plan"|xlt }}
+                                    </button>
+                                    <a href="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/dashboard" class="btn btn-secondary">
+                                        {{ "Return to Dashboard"|xlt }}
+                                    </a>
+                                </div>
+                                <div class="col-md-6 text-right">
+                                    <a href="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/treatment/list?pid={{ pid }}" class="btn btn-info">
+                                        {{ "View Patient Plans"|xlt }}
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- CKEditor 4 -->
+    <script src="{{ webroot }}/public/assets/ckeditor4/ckeditor.js"></script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize CKEditor
+            CKEDITOR.replace('observations', {
+                height: 300,
+                toolbar: [
+                    { name: 'document', items: ['Source', '-', 'NewPage', 'Preview', '-', 'Templates'] },
+                    { name: 'clipboard', items: ['Cut', 'Copy', 'Paste', 'PasteText', 'PasteFromWord', '-', 'Undo', 'Redo'] },
+                    { name: 'editing', items: ['Find', 'Replace', '-', 'SelectAll'] },
+                    '/',
+                    { name: 'basicstyles', items: ['Bold', 'Italic', 'Underline', 'Strike', 'Subscript', 'Superscript', '-', 'RemoveFormat'] },
+                    { name: 'paragraph', items: ['NumberedList', 'BulletedList', '-', 'Outdent', 'Indent', '-', 'Blockquote'] },
+                    { name: 'links', items: ['Link', 'Unlink'] },
+                    '/',
+                    { name: 'styles', items: ['Styles', 'Format', 'Font', 'FontSize'] },
+                    { name: 'colors', items: ['TextColor', 'BGColor'] },
+                    { name: 'tools', items: ['Maximize'] }
+                ],
+                removePlugins: 'elementspath',
+                resize_enabled: true,
+                enterMode: CKEDITOR.ENTER_BR,
+                shiftEnterMode: CKEDITOR.ENTER_P
+            });
+
+            // Wait for CKEditor to be ready
+            CKEDITOR.on('instanceReady', function(evt) {
+                const editor = evt.editor;
+
+                // Show voice controls
+                document.getElementById('voice-controls').style.display = 'block';
+
+                // Get voice control buttons
+                const voiceButton = document.getElementById('voice-button');
+                const aiButton = document.getElementById('ai-button');
+
+                // Voice recognition functionality
+                voiceButton.addEventListener('click', function() {
+                    if (!('webkitSpeechRecognition' in window)) {
+                        alert('{{ "Voice recognition not supported in this browser."|xlt|js_escape }}');
+                        return;
+                    }
+
+                    const recognition = new webkitSpeechRecognition();
+                    recognition.continuous = true;
+                    recognition.interimResults = true;
+                    recognition.lang = 'en-US';
+
+                    // Update button appearance
+                    voiceButton.innerHTML = '🔴 {{ "Recording..."|xlt|js_escape }}';
+                    voiceButton.style.backgroundColor = '#dc3545';
+                    voiceButton.style.color = 'white';
+                    voiceButton.disabled = true;
+
+                    let finalTranscript = '';
+
+                    recognition.onresult = function(event) {
+                        let interimTranscript = '';
+
+                        for (let i = event.resultIndex; i < event.results.length; i++) {
+                            const transcript = event.results[i][0].transcript;
+                            if (event.results[i].isFinal) {
+                                finalTranscript += transcript + ' ';
+                            } else {
+                                interimTranscript += transcript;
+                            }
+                        }
+
+                        // Insert final transcript into CKEditor
+                        if (finalTranscript) {
+                            editor.insertText(finalTranscript);
+                            finalTranscript = '';
+                        }
+                    };
+
+                    recognition.onerror = function(event) {
+                        console.error('Speech recognition error:', event.error);
+                        alert('{{ "Voice recognition error. Please try again."|xlt|js_escape }}');
+                        resetVoiceButton();
+                    };
+
+                    recognition.onend = function() {
+                        resetVoiceButton();
+                    };
+
+                    function resetVoiceButton() {
+                        voiceButton.innerHTML = '🎤 {{ "Voice Input"|xlt|js_escape }}';
+                        voiceButton.style.backgroundColor = '';
+                        voiceButton.style.color = '';
+                        voiceButton.disabled = false;
+                    }
+
+                    recognition.start();
+
+                    // Auto-stop after 30 seconds
+                    setTimeout(() => {
+                        recognition.stop();
+                    }, 30000);
+                });
+
+                // AI revision functionality
+                aiButton.addEventListener('click', function() {
+                    const currentContent = editor.getData();
+                    const textContent = editor.document.getBody().getText().trim();
+
+                    if (textContent === '') {
+                        alert('{{ "Please enter some text to revise."|xlt|js_escape }}');
+                        return;
+                    }
+
+                    // Update button state
+                    aiButton.innerHTML = '{{ "Processing..."|xlt|js_escape }}';
+                    aiButton.disabled = true;
+
+                    // Make API call to ChatGPT
+                    fetch('{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/treatment/chatgpt', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest'
+                        },
+                        body: JSON.stringify({
+                            model: "gpt-3.5-turbo",
+                            messages: [
+                                {
+                                    role: "user",
+                                    content: `You are a medical professional specializing in treatment planning. Please revise the following clinical observations to reflect a professional tone suitable for medical documentation, ensuring clarity, grammar, and clinical accuracy while maintaining all important clinical details: "${textContent}"`
+                                }
+                            ]
+                        })
+                    })
+                        .then(response => {
+                            if (!response.ok) {
+                                throw new Error(`ChatGPT API error: ${response.statusText}`);
+                            }
+                            return response.json();
+                        })
+                        .then(data => {
+                            // Replace editor content with AI-revised text
+                            editor.setData(data.choices[0].message.content);
+                            aiButton.innerHTML = '{{ "Revise with AI"|xlt|js_escape }}';
+                            aiButton.disabled = false;
+                        })
+                        .catch(error => {
+                            console.error('AI revision error:', error);
+                            alert('{{ "AI revision failed. Please check your internet connection and try again."|xlt|js_escape }}');
+                            aiButton.innerHTML = '{{ "Revise with AI"|xlt|js_escape }}';
+                            aiButton.disabled = false;
+                        });
+                });
+
+                // Ensure form submission gets CKEditor content
+                document.getElementById('observation-form').addEventListener('submit', function() {
+                    // Update textarea with CKEditor content before form submission
+                    document.getElementById('observations').value = editor.getData();
+                });
+            });
+        });
+    </script>
+
+{% endblock %}

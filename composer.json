@@ -1,0 +1,28 @@
+{
+    "name": "juggernautsei/oe-module-treatment-planner",
+    "description": "OpenEMR custom module for AI-assisted treatment planning with ChatGPT integration",
+    "type": "openemr-module",
+    "license": "GPL-3.0-only",
+    "authors": [
+        {
+            "name": "Sherwin Gaddis",
+            "email": "sherwin@tarevo.com"
+        }
+    ],
+    "minimum-stability": "stable",
+    "require": {
+        "php": ">=7.4.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "OpenEMR\\Modules\\TreatmentPlanner\\": "src/"
+        }
+    },
+    "conflict": {
+        "openemr/openemr": "<7.0.0"
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "sort-packages": true
+    }
+}

@@ -1,0 +1,232 @@
+{% extends "treatment/base.html.twig" %}
+
+{% block treatment_content %}
+<style>
+@media print {
+    /* Hide action buttons and interactive elements during print */
+    .no-print,
+    .btn-group,
+    .workflow-actions,
+    .status-form,
+    .text-center.mt-3 {
+        display: none !important;
+    }
+    
+    /* Hide workflow actions card entirely */
+    .workflow-card {
+        display: none !important;
+    }
+    
+    /* Ensure clean print layout */
+    .treatment-plan-container {
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    
+    .card {
+        border: none !important;
+        box-shadow: none !important;
+    }
+    
+    .card-body {
+        padding: 15px 0 !important;
+    }
+    
+    /* Clean up card headers for print */
+    .card-header {
+        background: none !important;
+        border: none !important;
+        padding-bottom: 10px !important;
+    }
+}
+</style>
+
+<div class="container treatment-plan-container">
+    <div class="row">
+        <div class="col-12">
+            <h2>{{ "Treatment Plan"|xlt }}</h2>
+            
+            {% if error %}
+                <div class="alert alert-danger">
+                    {{ error|xlt }}
+                </div>
+            {% endif %}
+            
+            {% if plan %}
+                <div class="card mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">{{ "Patient"|xlt }}: {{ plan.fname|text }} {{ plan.lname|text }}</h5>
+                        <span class="status-badge status-{{ plan.status|attr }}">{{ statuses[plan.status]|xlt }}</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="row mb-3">
+                            <div class="col-md-4">
+                                <strong>{{ "Age"|xlt }}:</strong> 
+                                {% if plan.DOB %}
+                                    {% set age = "now"|date("Y") - plan.DOB|date("Y") %}
+                                    {{ age }} {{ "years"|xlt }}
+                                {% else %}
+                                    {{ "Not specified"|xlt }}
+                                {% endif %}
+                            </div>
+                            <div class="col-md-4">
+                                <strong>{{ "Gender"|xlt }}:</strong> {{ plan.sex|text ?: ("Not specified"|xlt) }}
+                            </div>
+                            <div class="col-md-4">
+                                <strong>{{ "Version"|xlt }}:</strong> {{ plan.version|text }}
+                            </div>
+                        </div>
+                        
+                        <div class="treatment-content mb-4">
+                            {{ plan.content|nl2br }}
+                        </div>
+                        
+                        <div class="row mt-4">
+                            <div class="col-md-12">
+                                <div class="btn-group no-print" role="group">
+                                    <a href="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/treatment/edit?id={{ plan.id }}" class="btn btn-primary">
+                                        {{ "Edit Plan"|xlt }}
+                                    </a>
+                                    <button type="button" id="print-btn" class="btn btn-secondary no-print">
+                                        <i class="fa fa-print"></i> {{ "Print"|xlt }}
+                                    </button>
+                                    <a href="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/treatment_pdf.php?id={{ plan.id }}" class="btn btn-info no-print">
+                                        <i class="fa fa-file-pdf"></i> {{ "Export PDF"|xlt }}
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        {% if plan.status != 'finalized' %}
+                            <div class="card mt-4 mb-3 workflow-card">
+                                <div class="card-header">
+                                    <h5>{{ "Workflow Actions"|xlt }}</h5>
+                                </div>
+                                <div class="card-body">
+                                    <form id="status-form" class="status-form no-print">
+                                        <input type="hidden" name="csrf_token_form" value="{{ csrf_token_form|attr }}">
+                                        <input type="hidden" name="plan_id" value="{{ plan.id|attr }}">
+                                        
+                                        <div class="workflow-actions">
+                                            {% if plan.status == 'draft' %}
+                                                <button type="button" class="btn btn-warning status-btn" data-status="pending_review">
+                                                    {{ "Submit for Review"|xlt }}
+                                                </button>
+                                            {% endif %}
+                                            
+                                            {% if plan.status == 'pending_review' %}
+                                                <button type="button" class="btn btn-info status-btn" data-status="approved">
+                                                    {{ "Approve"|xlt }}
+                                                </button>
+                                                <button type="button" class="btn btn-secondary status-btn" data-status="draft">
+                                                    {{ "Return to Draft"|xlt }}
+                                                </button>
+                                            {% endif %}
+                                            
+                                            {% if plan.status == 'approved' %}
+                                                <button type="button" class="btn btn-success status-btn" data-status="finalized">
+                                                    {{ "Finalize"|xlt }}
+                                                </button>
+                                                <button type="button" class="btn btn-warning status-btn" data-status="pending_review">
+                                                    {{ "Return to Review"|xlt }}
+                                                </button>
+                                            {% endif %}
+                                        </div>
+                                    </form>
+                                </div>
+                                <div class="card-footer">
+                                    <small>{{ "Note: Once finalized, a treatment plan cannot be changed."|xlt }}</small>
+                                </div>
+                            </div>
+                        {% endif %}
+                    </div>
+                    <div class="card-footer">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <small>
+                                    {{ "Created"|xlt }}: {{ plan.date_created|dateToTime|date('Y-m-d H:i:s') }} | 
+                                    {{ "Updated"|xlt }}: {{ plan.date_updated|dateToTime|date('Y-m-d H:i:s') }}
+                                </small>
+                            </div>
+                            <div class="col-md-6 text-right">
+                                <small>
+                                    {{ "Provider"|xlt }}: {{ plan.provider_fname|text }} {{ plan.provider_lname|text }}
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="text-center mt-3 no-print">
+                    <a href="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/treatment/list?pid={{ plan.patient_id }}" class="btn btn-info">
+                        {{ "View Patient Plans"|xlt }}
+                    </a>
+                    <a href="{{ webroot }}/interface/patient_file/encounter/forms.php?encounter={{ plan.encounter_id }}" class="btn btn-secondary">
+                        {{ "Return to Encounter"|xlt }}
+                    </a>
+                </div>
+            {% else %}
+                <div class="alert alert-warning">
+                    {{ "Treatment plan not found"|xlt }}
+                    <a href="{{ webroot }}/interface/patient_file/encounter/forms.php?encounter={{ plan.encounter_id }}" class="btn btn-primary ml-3">
+                        {{ "Return to Encounter"|xlt }}
+                    </a>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Print functionality
+    document.getElementById('print-btn').addEventListener('click', function() {
+        window.print();
+    });
+    
+    // Status change buttons
+    const statusButtons = document.querySelectorAll('.status-btn');
+    statusButtons.forEach(function(button) {
+        button.addEventListener('click', function() {
+            const status = this.getAttribute('data-status');
+            const statusName = {
+                'draft': '{{ "Draft"|xlt }}',
+                'pending_review': '{{ "Pending Review"|xlt }}',
+                'approved': '{{ "Approved"|xlt }}',
+                'finalized': '{{ "Finalized"|xlt }}'
+            }[status];
+            
+            if (confirm('{{ "Are you sure you want to change the status to"|xlt }} ' + statusName + '?')) {
+                const form = document.getElementById('status-form');
+                const statusInput = document.createElement('input');
+                statusInput.type = 'hidden';
+                statusInput.name = 'status';
+                statusInput.value = status;
+                form.appendChild(statusInput);
+                
+                // Submit via AJAX
+                const formData = new FormData(form);
+                
+                fetch('{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/treatment_change_status.php', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert(data.message);
+                        location.reload();
+                    } else {
+                        alert(data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert("{{ 'An error occurred while changing status'|xlt }}");
+                });
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

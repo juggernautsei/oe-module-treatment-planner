@@ -1,0 +1,287 @@
+Enhanced Treatment Planner Implementation Plan
+Based on your responses, I'll expand the implementation plan to include all requested features. Here's the comprehensive approach:
+
+Step 1: Updated Database Schema
+sql
+At mention
+CREATE TABLE IF NOT EXISTS `module_treatment_planner_config` (
+  [id](cci:1://file:///var/www/html/openemr702/src/Events/Encounter/LoadEncounterFormFilterEvent.php:56:4-62:5) int(11) NOT NULL AUTO_INCREMENT,
+  `setting_key` varchar(255) NOT NULL,
+  `setting_value` text,
+  `encrypted` tinyint(1) DEFAULT '0',
+  PRIMARY KEY ([id](cci:1://file:///var/www/html/openemr702/src/Events/Encounter/LoadEncounterFormFilterEvent.php:56:4-62:5)),
+  UNIQUE KEY `setting_key` (`setting_key`)
+);
+
+CREATE TABLE IF NOT EXISTS `module_treatment_planner_plans` (
+  [id](cci:1://file:///var/www/html/openemr702/src/Events/Encounter/LoadEncounterFormFilterEvent.php:56:4-62:5) int(11) NOT NULL AUTO_INCREMENT,
+  `pid` bigint(20) NOT NULL,
+  `encounter_id` bigint(20) NOT NULL,
+  `provider_id` int(11) NOT NULL,
+  `observation` text,
+  `treatment_plan` text,
+  `template_id` int(11) DEFAULT NULL,
+  `status` enum('draft','pending_review','approved','finalized') NOT NULL DEFAULT 'draft',
+  `version` int(11) NOT NULL DEFAULT '1',
+  `parent_id` int(11) DEFAULT NULL,
+  `date_created` datetime DEFAULT CURRENT_TIMESTAMP,
+  `date_updated` datetime DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY ([id](cci:1://file:///var/www/html/openemr702/src/Events/Encounter/LoadEncounterFormFilterEvent.php:56:4-62:5)),
+  KEY `pid_encounter_index` (`pid`, `encounter_id`),
+  KEY `parent_id_index` (`parent_id`)
+);
+
+CREATE TABLE IF NOT EXISTS `module_treatment_planner_templates` (
+  [id](cci:1://file:///var/www/html/openemr702/src/Events/Encounter/LoadEncounterFormFilterEvent.php:56:4-62:5) int(11) NOT NULL AUTO_INCREMENT,
+  `name` varchar(255) NOT NULL,
+  `description` text,
+  `condition_type` varchar(255) NOT NULL,
+  `prompt_template` text NOT NULL,
+  `active` tinyint(1) DEFAULT '1',
+  PRIMARY KEY ([id](cci:1://file:///var/www/html/openemr702/src/Events/Encounter/LoadEncounterFormFilterEvent.php:56:4-62:5))
+);
+
+CREATE TABLE IF NOT EXISTS `module_treatment_planner_usage` (
+  [id](cci:1://file:///var/www/html/openemr702/src/Events/Encounter/LoadEncounterFormFilterEvent.php:56:4-62:5) int(11) NOT NULL AUTO_INCREMENT,
+  `provider_id` int(11) NOT NULL,
+  `api_call_type` varchar(255) NOT NULL,
+  `tokens_used` int(11) DEFAULT NULL,
+  `successful` tinyint(1) NOT NULL DEFAULT '0',
+  `date_created` datetime DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY ([id](cci:1://file:///var/www/html/openemr702/src/Events/Encounter/LoadEncounterFormFilterEvent.php:56:4-62:5)),
+  KEY `provider_id_index` (`provider_id`)
+);
+Step 2: Extended Module Structure
+At mention
+oe-module-treatment-planner/
+├── public/
+│   ├── index.php                # Entry point for module routes
+│   ├── assets/
+│   │   ├── js/
+│   │   │   ├── treatment-editor.js
+│   │   │   ├── template-manager.js
+│   │   │   └── pdf-export.js
+│   │   └── css/
+│   │       └── treatment-planner.css
+├── src/
+│   ├── Bootstrap.php            # Module initialization
+│   ├── Controllers/
+│   │   ├── ConfigController.php
+│   │   ├── TreatmentController.php
+│   │   ├── TemplateController.php
+│   │   ├── ReviewController.php
+│   │   └── ReportController.php  # For PDF exports and reports
+│   ├── Services/
+│   │   ├── ConfigService.php    # API key management
+│   │   ├── OpenAIService.php    # ChatGPT integration
+│   │   ├── TreatmentService.php # Core treatment plan business logic
+│   │   ├── TemplateService.php  # Template management
+│   │   ├── UsageService.php     # API usage tracking
+│   │   └── PdfService.php       # PDF generation
+│   ├── Models/
+│   │   ├── TreatmentPlan.php
+│   │   ├── Template.php
+│   │   └── Usage.php
+│   └── Event/
+│       └── EncounterEventSubscriber.php # Hook into encounter workflow
+├── templates/
+│   ├── config/
+│   │   ├── index.html.twig
+│   │   └── templates.html.twig
+│   ├── treatment/
+│   │   ├── form.html.twig
+│   │   ├── edit.html.twig
+│   │   ├── review.html.twig
+│   │   └── history.html.twig
+│   └── report/
+│       └── pdf-template.html.twig
+├── moduleConfig.php
+├── openemr.bootstrap.php
+└── table.sql
+Step 3: Encounter Integration
+EncounterEventSubscriber.php
+Listen for
+LoadEncounterFormFilterEvent
+ to add treatment planner form
+Add treatment planner to encounter form list
+Connect to specific encounter context
+Hook into Encounter Interface
+php
+At mention
+public function addHealthScribeEncItem(LoadEncounterFormFilterEvent $event)
+{
+    // Add treatment planner form to encounter
+    if ($event->getFormName() === 'treatment_planner') {
+        $event->setDir($GLOBALS['fileroot'] . '/interface/modules/custom_modules/oe-module-treatment-planner/');
+        $event->setPageName('encounter/treatment.php');
+    }
+    return $event;
+}
+Step 4: Template Management System
+TemplateService.php
+Methods to create, update, and manage templates for different conditions
+Default templates for common behavioral health conditions
+Customizable prompt structures
+TemplateController.php
+Admin interface for managing templates
+Enable/disable templates
+Edit prompt structure
+Sample Templates
+php
+At mention
+// Depression template
+$template = [
+    'name' => 'Depression Treatment Plan',
+    'condition_type' => 'depression',
+    'prompt_template' => "As a behavioral health professional treating depression, create a comprehensive treatment plan based on the following observation.\n
+    Patient: Age {age}, Gender: {gender}\n
+    Clinical Observation: {observation}\n\n
+    Format your response with these specific sections:\n
+    Diagnosis:\n
+    Depression Severity Assessment:\n
+    Treatment Goals:\n
+    Psychotherapy Approach:\n
+    Medication Considerations:\n
+    Lifestyle Modifications:\n
+    Support System Recommendations:\n
+    Safety Planning:\n
+    Follow-up Schedule:\n"
+];
+Step 5: Review and Approval Workflow
+Status Flow
+Draft → Pending Review → Approved → Finalized
+ReviewController.php
+Manage review queue
+Implement approval process
+Status change tracking
+Version Control
+Track treatment plan versions
+Maintain history of changes
+Compare versions
+Step 6: Treatment Plan Editor
+Treatment Editor Interface
+Rich text editor for modifying AI-generated content
+Section-based editing
+Version comparison view
+Required Treatment Plan Components
+Diagnosis section
+Treatment goals
+Interventions
+Recommendations
+Timeline
+Custom sections based on template
+Step 7: PDF Export Functionality
+PdfService.php
+Generate professionally formatted PDFs
+Use mPDF or similar library
+Customizable headers/footers with clinic information
+PDF Templates
+Professional formatting
+Practice branding options
+Digital signature support
+Step 8: API Usage Tracking
+UsageService.php
+Track API calls by provider
+Monitor token usage
+Generate usage reports
+Optional quota management
+Usage Dashboard
+php
+At mention
+public function trackApiUsage($providerId, $callType, $tokensUsed, $successful)
+{
+    // Insert usage record
+    $sql = "INSERT INTO `module_treatment_planner_usage`
+            (`provider_id`, `api_call_type`, `tokens_used`, `successful`)
+            VALUES (?, ?, ?, ?)";
+
+    return sqlInsert($sql, [$providerId, $callType, $tokensUsed, $successful ? 1 : 0]);
+}
+Step 9: Integration with OpenEMR Core
+Update Bootstrap.php
+php
+At mention
+public function subscribeToEvents(): void
+{
+    $this->eventDispatcher->addListener(MenuEvent::MENU_UPDATE, [$this, 'addTreatmentPlanner']);
+    $this->eventDispatcher->addListener(LoadEncounterFormFilterEvent::EVENT_NAME, [$this, 'addHealthScribeEncItem']);
+}
+
+public function addHealthScribeEncItem(LoadEncounterFormFilterEvent $event)
+{
+    if ($event->getFormName() === 'treatment_planner') {
+        $event->setDir($GLOBALS['fileroot'] . '/interface/modules/custom_modules/oe-module-treatment-planner/');
+        $event->setPageName('encounter/treatment.php');
+    }
+    return $event;
+}
+Step 10: Implementation Sequence
+Phase 1: Core Functionality
+Database setup
+Configuration page
+Basic treatment form
+ChatGPT integration
+Phase 2: Enhanced Features
+Template system
+Encounter integration
+Version control
+Edit interface
+Phase 3: Advanced Features
+Review workflow
+PDF export
+Usage tracking
+Reporting
+This comprehensive plan addresses all your requirements and follows OpenEMR's architectural patterns. Would you like me to start implementing any specific part of this plan first?
+
+Feedback submitted
+Me
+
+Please store this in memory. How can we use this implementation plan to stay on track while the project is being built and tested?
+
+Revert
+Thought Process
+
+Thought Process
+
+Using the Implementation Plan for Project Management
+To effectively use the Treatment Planner implementation plan throughout the development and testing process, here are practical approaches:
+
+1. Convert to Project Management Artifacts
+Create GitHub Issues/Milestones: Break down each phase into GitHub issues aligned with the implementation plan
+Set Up a Kanban Board: Organize tasks into "To Do," "In Progress," "Testing," and "Complete" columns
+Define Acceptance Criteria: For each feature based on the implementation plan requirements
+2. Phase-Based Development Tracking
+Follow the phased approach from the implementation plan:
+
+Phase 1 (Core Functionality) Checklist:
+ Database tables created
+ Config page with API key management
+ Basic treatment form implementation
+ ChatGPT API integration
+Phase 2 (Enhanced Features) Checklist:
+ Template system for different conditions
+ Encounter integration via LoadEncounterFormFilterEvent
+ Version control implementation
+ Treatment plan editor
+Phase 3 (Advanced Features) Checklist:
+ Review/approval workflow
+ PDF export functionality
+ Usage tracking system
+ Reporting dashboard
+3. Testing Strategy Per Phase
+Phase 1: Focus on API connectivity, encryption, database operations
+Phase 2: Test encounter integration, template functionality
+Phase 3: Verify workflows, PDF generation, usage reports
+4. Regular Progress Reviews
+Schedule weekly review meetings comparing development progress against the implementation plan
+Update priorities based on blockers or new requirements
+Track percentage completion for each phase
+5. Documentation Management
+Maintain up-to-date documentation as each component is built
+Reference the implementation plan in comments and documentation
+Create in-code references to relevant sections of the implementation plan
+6. Development Guidelines
+Always reference the proper namespace OpenEMR\Modules\TreatmentPlanner
+Follow the established module structure in the implementation plan
+Maintain consistency with OpenEMR's event system for encounter integration
+This structured approach will help maintain focus on deliverables while providing flexibility to adapt to challenges during implementation. The phased approach allows for incremental testing and validation before moving to more complex features.

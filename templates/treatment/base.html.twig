@@ -1,0 +1,73 @@
+{% extends 'base.twig' %}
+
+{% block head %}
+{{ setupHeader(['opener', 'jquery-ui', 'jquery-ui-sunny', 'datetime-picker']) }}
+{% endblock %}
+
+{% block title %}{{ "Treatment Planner"|xlt }}{% endblock %}
+
+{% block content %}
+<style>
+    .treatment-plan-container {
+        padding: 15px;
+    }
+    
+    .section-header {
+        background-color: #f8f9fa;
+        padding: 8px 15px;
+        margin: 10px 0;
+        border-left: 4px solid #3c8dbc;
+    }
+    
+    .treatment-content {
+        white-space: pre-wrap;
+        border: 1px solid #ddd;
+        padding: 15px;
+        border-radius: 4px;
+        background-color: #fff;
+        min-height: 300px;
+    }
+    
+    .status-badge {
+        font-size: 0.9rem;
+        padding: 5px 10px;
+        border-radius: 4px;
+    }
+    
+    .status-draft {
+        background-color: #6c757d;
+        color: white;
+    }
+    
+    .status-pending_review {
+        background-color: #ffc107;
+    }
+    
+    .status-approved {
+        background-color: #17a2b8;
+        color: white;
+    }
+    
+    .status-finalized {
+        background-color: #28a745;
+        color: white;
+    }
+    
+    .template-card {
+        margin-bottom: 15px;
+    }
+    
+    .template-card .card-body {
+        padding: 10px;
+        height: 100px;
+        overflow-y: auto;
+    }
+    
+    .template-card .card-footer {
+        padding: 5px 10px;
+        font-size: 0.8rem;
+    }
+</style>
+{% block treatment_content %}
+{% endblock %}
+{% endblock %}

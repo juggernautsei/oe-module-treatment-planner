@@ -1,0 +1,138 @@
+{% extends "treatment/base.html.twig" %}
+
+{% block treatment_content %}
+<div class="container treatment-plan-container">
+    <div class="row">
+        <div class="col-12">
+            <h2>{{ "Edit Treatment Plan"|xlt }}</h2>
+            
+            {% if error %}
+                <div class="alert alert-danger">
+                    {{ error|xlt }}
+                </div>
+            {% endif %}
+            
+            {% if message %}
+                <div class="alert alert-success">
+                    {{ message|xlt }}
+                </div>
+            {% endif %}
+            
+            {% if plan %}
+                <div class="card mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">{{ "Patient"|xlt }}: {{ plan.fname|text }} {{ plan.lname|text }}</h5>
+                        <span class="status-badge status-{{ plan.status|attr }}">{{ statuses[plan.status]|xlt }}</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="row mb-3">
+                            <div class="col-md-4">
+                                <strong>{{ "Age"|xlt }}:</strong> 
+                                {% if plan.DOB %}
+                                    {% set age = "now"|date("Y") - plan.DOB|date("Y") %}
+                                    {{ age }} {{ "years"|xlt }}
+                                {% else %}
+                                    {{ "Not specified"|xlt }}
+                                {% endif %}
+                            </div>
+                            <div class="col-md-4">
+                                <strong>{{ "Gender"|xlt }}:</strong> {{ plan.sex|text ?: ("Not specified"|xlt) }}
+                            </div>
+                            <div class="col-md-4">
+                                <strong>{{ "Version"|xlt }}:</strong> {{ plan.version|text }}
+                            </div>
+                        </div>
+                        
+                        <form method="post" action="" id="edit-form">
+                            <input type="hidden" name="csrf_token_form" value="{{ csrf_token_form|attr }}">
+                            <input type="hidden" name="plan_id" value="{{ plan.id|attr }}">
+                            
+                            <div class="form-group">
+                                <label for="status-select">{{ "Status"|xlt }}</label>
+                                <select class="form-control" id="status-select" name="status">
+                                    {% for status_key, status_label in statuses %}
+                                        <option value="{{ status_key|attr }}" {% if status_key == plan.status %}selected{% endif %}>
+                                            {{ status_label|xlt }}
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="content">{{ "Treatment Plan"|xlt }}</label>
+                                <textarea class="form-control" id="content" name="content" rows="20">{{ plan.content|text }}</textarea>
+                            </div>
+                            
+                            <div class="form-group mt-4">
+                                <div class="row">
+                                    <div class="col-md-8">
+                                        <button type="submit" name="submit_edit" value="1" class="btn btn-secondary">
+                                            <i class="fas fa-save"></i> {{ "Save Changes"|xlt }}
+                                        </button>
+                                        <button type="submit" name="submit_finalize" value="1" class="btn btn-success ml-2" 
+                                                onclick="return confirm('{{ "Are you sure you want to finalize this treatment plan? Once finalized, it will appear in the patient summary and may have limited editing capabilities."|xlt }}');">
+                                            <i class="fas fa-check-circle"></i> {{ "Finalize Treatment Plan"|xlt }}
+                                        </button>
+                                        <a href="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/treatment_view.php?id={{ plan.id }}" class="btn btn-outline-secondary ml-2">
+                                            <i class="fas fa-times"></i> {{ "Cancel"|xlt }}
+                                        </a>
+                                    </div>
+                                    <div class="col-md-4 text-right">
+                                        <a href="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/treatment/list?pid={{ plan.patient_id }}" class="btn btn-info">
+                                            <i class="fas fa-list"></i> {{ "View Patient Plans"|xlt }}
+                                        </a>
+                                    </div>
+                                </div>
+                                
+                                <!-- Help text for buttons -->
+                                <div class="row mt-2">
+                                    <div class="col-12">
+                                        <small class="text-muted">
+                                            <i class="fas fa-info-circle"></i>
+                                            <strong>{{ "Save Changes"|xlt }}:</strong> {{ "Save your edits as a draft (can be edited later)"|xlt }} | 
+                                            <strong>{{ "Finalize"|xlt }}:</strong> {{ "Save as final treatment plan (appears in patient summary)"|xlt }}
+                                        </small>
+                                    </div>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="card-footer">
+                        <small>
+                            {{ "Created"|xlt }}: {{ plan.date_created|dateToTime|date('Y-m-d H:i:s') }} | 
+                            {{ "Updated"|xlt }}: {{ plan.date_updated|dateToTime|date('Y-m-d H:i:s') }} |
+                            {{ "Provider"|xlt }}: {{ plan.provider_fname|text }} {{ plan.provider_lname|text }}
+                        </small>
+                    </div>
+                </div>
+            {% else %}
+                <div class="alert alert-warning">
+                    {{ "Treatment plan not found"|xlt }}
+                    <a href="{{ webroot }}/interface/patient_file/encounter/encounter_top.php" class="btn btn-primary ml-3">
+                        {{ "Return to Encounter"|xlt }}
+                    </a>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Add a confirmation for changes
+    document.getElementById('edit-form').addEventListener('submit', function(e) {
+        const originalStatus = '{{ plan.status|attr }}';
+        const newStatus = document.getElementById('status-select').value;
+        
+        if (originalStatus !== newStatus) {
+            if (!confirm('{{ "You are about to change the status of this treatment plan. Continue?"|xlt }}')) {
+                e.preventDefault();
+                return false;
+            }
+        }
+    });
+    
+    // Auto-save functionality could be added here in the future
+});
+</script>
+{% endblock %}

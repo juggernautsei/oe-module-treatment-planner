@@ -1,0 +1,45 @@
+oe-module-treatment-planner/
+├── public/
+│   ├── index.php                # Entry point for module routes
+│   ├── assets/
+│   │   ├── js/
+│   │   │   ├── treatment-editor.js
+│   │   │   ├── template-manager.js
+│   │   │   └── pdf-export.js
+│   │   └── css/
+│   │       └── treatment-planner.css
+├── src/
+│   ├── Bootstrap.php            # Module initialization
+│   ├── Controllers/
+│   │   ├── ConfigController.php
+│   │   ├── TreatmentController.php
+│   │   ├── TemplateController.php
+│   │   ├── ReviewController.php
+│   │   └── ReportController.php  # For PDF exports and reports
+│   ├── Services/
+│   │   ├── ConfigService.php    # API key management
+│   │   ├── OpenAIService.php    # ChatGPT integration
+│   │   ├── TreatmentService.php # Core treatment plan business logic
+│   │   ├── TemplateService.php  # Template management
+│   │   ├── UsageService.php     # API usage tracking
+│   │   └── PdfService.php       # PDF generation
+│   ├── Models/
+│   │   ├── TreatmentPlan.php
+│   │   ├── Template.php
+│   │   └── Usage.php
+│   └── Event/
+│       └── EncounterEventSubscriber.php # Hook into encounter workflow
+├── templates/
+│   ├── config/
+│   │   ├── index.html.twig
+│   │   └── templates.html.twig
+│   ├── treatment/
+│   │   ├── form.html.twig
+│   │   ├── edit.html.twig
+│   │   ├── review.html.twig
+│   │   └── history.html.twig
+│   └── report/
+│       └── pdf-template.html.twig
+├── moduleConfig.php
+├── openemr.bootstrap.php
+└── table.sql
