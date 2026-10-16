@@ -2,7 +2,7 @@
 
 /**
  * Class to be called from Laminas Module Manager for reporting management actions.
- * Example is if the module is enabled, disabled or unregistered ect.
+ * Example is if the module is enabled, disabled or unregistered etc.
  *
  * The class is in the Laminas "Installer\Controller" namespace.
  * Currently, register isn't supported of which support should be a part of install.
@@ -13,8 +13,8 @@
  *
  * @package   OpenEMR Modules
  * @link      https://www.open-emr.org
- * @author    Jerry Padgett <sjpadgett@gmail.com>
- * @copyright Copyright (c) 2024 Jerry Padgett <sjpadgett@gmail.com>
+ * @author    Sherwin Gaddis <sherwingaddis@gmail.com>
+ * @copyright Copyright (c) 2025 Sherwin Gaddis <sherwingaddis@gmail.com>
  * @license   https://github.com/openemr/openemr/blob/master/LICENSE GNU General Public License 3
  */
 

@@ -1,10 +1,15 @@
 <?php
 
 /**
- * Menu Integration for Treatment Planner Module
+ * Menu integration for the Treatment Planner module.
  *
- * This file provides menu integration functions for OpenEMR
- * to add Treatment Planner entries to the main navigation
+ * Adds Treatment Planner entries to the OpenEMR main navigation.
+ *
+ * @package   OpenEMR
+ * @link      https://www.open-emr.org
+ * @author    Sherwin Gaddis <sherwingaddis@gmail.com>
+ * @copyright Copyright (c) 2025 Sherwin Gaddis <sherwingaddis@gmail.com>
+ * @license   https://github.com/openemr/openemr/blob/master/LICENSE GNU General Public License 3
  */
 
 /**

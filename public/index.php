@@ -1,13 +1,14 @@
 <?php
 
-/*
- * package   OpenEMR
- * link      http://www.open-emr.org
- * author    Sherwin Gaddis <sherwingaddis@gmail.com>
- * Copyright (c) 2023.
- * All rights reserved
+/**
+ * Public front controller for the Treatment Planner module.
+ *
+ * @package   OpenEMR
+ * @link      https://www.open-emr.org
+ * @author    Sherwin Gaddis <sherwingaddis@gmail.com>
+ * @copyright Copyright (c) 2023 Sherwin Gaddis <sherwingaddis@gmail.com>
+ * @license   https://github.com/openemr/openemr/blob/master/LICENSE GNU General Public License 3
  */
-
 
 //prevent UI redressing
 use OpenEMR\Modules\TreatmentPlanner\Controllers\Dashboard;

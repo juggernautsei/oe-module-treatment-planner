@@ -1,11 +1,13 @@
 <?php
 
-/*
- * package   OpenEMR
- * link      http://www.open-emr.org
- * author    Sherwin Gaddis <sherwingaddis@gmail.com>
- * All rights reserved
- * Copyright (c) 2025.
+/**
+ * Public entrypoint for creating a new treatment plan.
+ *
+ * @package   OpenEMR
+ * @link      https://www.open-emr.org
+ * @author    Sherwin Gaddis <sherwingaddis@gmail.com>
+ * @copyright Copyright (c) 2025 Sherwin Gaddis <sherwingaddis@gmail.com>
+ * @license   https://github.com/openemr/openemr/blob/master/LICENSE GNU General Public License 3
  */
 
 require_once(__DIR__ . "/../../../../globals.php");

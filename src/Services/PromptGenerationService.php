@@ -2,11 +2,12 @@
 
 /**
  * PromptGenerationService.php
+ * Service for building AI prompts for treatment plan generation.
  *
  * @package   OpenEMR
- * @link      http://www.open-emr.org
- * @author    Treatment Planner Module
- * @copyright Copyright (c) 2025
+ * @link      https://www.open-emr.org
+ * @author    Sherwin Gaddis <sherwingaddis@gmail.com>
+ * @copyright Copyright (c) 2025 Sherwin Gaddis <sherwingaddis@gmail.com>
  * @license   https://github.com/openemr/openemr/blob/master/LICENSE GNU General Public License 3
  */
 

@@ -1,8 +1,14 @@
 <?php
 
 /**
- * Initialize default templates for Treatment Planner
- * Run this script once to set up the default templates
+ * Initialize default templates for Treatment Planner.
+ * Run this script once to set up the default templates.
+ *
+ * @package   OpenEMR
+ * @link      https://www.open-emr.org
+ * @author    Sherwin Gaddis <sherwingaddis@gmail.com>
+ * @copyright Copyright (c) 2025 Sherwin Gaddis <sherwingaddis@gmail.com>
+ * @license   https://github.com/openemr/openemr/blob/master/LICENSE GNU General Public License 3
  */
 
 require_once dirname(__FILE__, 4) . '/globals.php';

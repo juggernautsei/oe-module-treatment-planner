@@ -1,10 +1,16 @@
 <?php
 
 /**
- * Encounter Integration for Treatment Planner Module
+ * Encounter integration hooks for the Treatment Planner module.
  *
- * This file provides integration hooks for OpenEMR encounter forms
- * to display Treatment Planner quick access and related information
+ * Provides integration for OpenEMR encounter forms to display
+ * Treatment Planner quick access and related information.
+ *
+ * @package   OpenEMR
+ * @link      https://www.open-emr.org
+ * @author    Sherwin Gaddis <sherwingaddis@gmail.com>
+ * @copyright Copyright (c) 2025 Sherwin Gaddis <sherwingaddis@gmail.com>
+ * @license   https://github.com/openemr/openemr/blob/master/LICENSE GNU General Public License 3
  */
 
 require_once __DIR__ . "/menu_integration.php";
