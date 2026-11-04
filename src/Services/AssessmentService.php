@@ -20,6 +20,7 @@ use Exception;
  */
 class AssessmentService
 {
+    private array $listValueCache = [];
     /**
      * Extract comprehensive assessment data for AI processing
      *
@@ -153,61 +154,61 @@ class AssessmentService
     {
         return [
             'general_appearance' => [
-                'build' => $this->getListValue($formData['appearance_build']['value'] ?? ''),
-                'hygiene' => $this->getListValue($formData['appearance_hygiene']['value'] ?? ''),
-                'dress' => $this->getListValue($formData['appearance_dress']['value'] ?? ''),
-                'grooming' => $this->getListValue($formData['appearance_grooming']['value'] ?? '')
+                'build' => $this->getListValue($formData['appearance_build']['value'] ?? '', $formData['appearance_build']['list_id'] ?? ''),
+                'hygiene' => $this->getListValue($formData['appearance_hygiene']['value'] ?? '', $formData['appearance_hygiene']['list_id'] ?? ''),
+                'dress' => $this->getListValue($formData['appearance_dress']['value'] ?? '', $formData['appearance_dress']['list_id'] ?? ''),
+                'grooming' => $this->getListValue($formData['appearance_grooming']['value'] ?? '', $formData['appearance_grooming']['list_id'] ?? '')
             ],
             'sensorium' => [
-                'orientation' => $this->getListValue($formData['orientation']['value'] ?? ''),
-                'consciousness' => $this->getListValue($formData['consciousness']['value'] ?? ''),
-                'alertness' => $this->getListValue($formData['alertness']['value'] ?? '')
+                'orientation' => $this->getListValue($formData['orientation']['value'] ?? '', $formData['orientation']['list_id'] ?? ''),
+                'consciousness' => $this->getListValue($formData['consciousness']['value'] ?? '', $formData['consciousness']['list_id'] ?? ''),
+                'alertness' => $this->getListValue($formData['alertness']['value'] ?? '', $formData['alertness']['list_id'] ?? '')
             ],
             'cognitive_function' => [
-                'concentration' => $this->getListValue($formData['concentration']['value'] ?? ''),
-                'attention' => $this->getListValue($formData['attention']['value'] ?? ''),
-                'short_term_memory' => $this->getListValue($formData['memory_short']['value'] ?? ''),
-                'long_term_memory' => $this->getListValue($formData['memory_long']['value'] ?? ''),
-                'intelligence' => $this->getListValue($formData['intelligence']['value'] ?? '')
+                'concentration' => $this->getListValue($formData['concentration']['value'] ?? '', $formData['concentration']['list_id'] ?? ''),
+                'attention' => $this->getListValue($formData['attention']['value'] ?? '', $formData['attention']['list_id'] ?? ''),
+                'short_term_memory' => $this->getListValue($formData['memory_short']['value'] ?? '', $formData['memory_short']['list_id'] ?? ''),
+                'long_term_memory' => $this->getListValue($formData['memory_long']['value'] ?? '', $formData['memory_long']['list_id'] ?? ''),
+                'intelligence' => $this->getListValue($formData['intelligence']['value'] ?? '', $formData['intelligence']['list_id'] ?? '')
             ],
             'behavioral_observations' => [
-                'eye_contact' => $this->getListValue($formData['eye_contact']['value'] ?? ''),
-                'gait' => $this->getListValue($formData['gait']['value'] ?? ''),
-                'psychomotor' => $this->getListValue($formData['psychomotor']['value'] ?? ''),
-                'cooperation' => $this->getListValue($formData['cooperation']['value'] ?? '')
+                'eye_contact' => $this->getListValue($formData['eye_contact']['value'] ?? '', $formData['eye_contact']['list_id'] ?? ''),
+                'gait' => $this->getListValue($formData['gait']['value'] ?? '', $formData['gait']['list_id'] ?? ''),
+                'psychomotor' => $this->getListValue($formData['psychomotor']['value'] ?? '', $formData['psychomotor']['list_id'] ?? ''),
+                'cooperation' => $this->getListValue($formData['cooperation']['value'] ?? '', $formData['cooperation']['list_id'] ?? '')
             ],
             'speech_language' => [
-                'rate' => $this->getListValue($formData['speech_rate']['value'] ?? ''),
-                'volume' => $this->getListValue($formData['speech_volume']['value'] ?? ''),
-                'content' => $this->getListValue($formData['speech_content']['value'] ?? ''),
-                'fluency' => $this->getListValue($formData['speech_fluency']['value'] ?? '')
+                'rate' => $this->getListValue($formData['speech_rate']['value'] ?? '', $formData['speech_rate']['list_id'] ?? ''),
+                'volume' => $this->getListValue($formData['speech_volume']['value'] ?? '', $formData['speech_volume']['list_id'] ?? ''),
+                'content' => $this->getListValue($formData['speech_content']['value'] ?? '', $formData['speech_content']['list_id'] ?? ''),
+                'fluency' => $this->getListValue($formData['speech_fluency']['value'] ?? '', $formData['speech_fluency']['list_id'] ?? '')
             ],
             'mood_affect' => [
-                'mood' => $this->getListValue($formData['mood']['value'] ?? ''),
-                'affect_range' => $this->getListValue($formData['affect_range']['value'] ?? ''),
-                'affect_amplitude' => $this->getListValue($formData['affect_amplitude']['value'] ?? ''),
-                'affect_appropriateness' => $this->getListValue($formData['affect_appropriate']['value'] ?? '')
+                'mood' => $this->getListValue($formData['mood']['value'] ?? '', $formData['mood']['list_id'] ?? ''),
+                'affect_range' => $this->getListValue($formData['affect_range']['value'] ?? '', $formData['affect_range']['list_id'] ?? ''),
+                'affect_amplitude' => $this->getListValue($formData['affect_amplitude']['value'] ?? '', $formData['affect_amplitude']['list_id'] ?? ''),
+                'affect_appropriateness' => $this->getListValue($formData['affect_appropriate']['value'] ?? '', $formData['affect_appropriate']['list_id'] ?? '')
             ],
             'thought_process' => [
-                'organization' => $this->getListValue($formData['thought_organization']['value'] ?? ''),
-                'coherence' => $this->getListValue($formData['thought_coherence']['value'] ?? ''),
-                'goal_directed' => $this->getListValue($formData['thought_goal_directed']['value'] ?? '')
+                'organization' => $this->getListValue($formData['thought_organization']['value'] ?? '', $formData['thought_organization']['list_id'] ?? ''),
+                'coherence' => $this->getListValue($formData['thought_coherence']['value'] ?? '', $formData['thought_coherence']['list_id'] ?? ''),
+                'goal_directed' => $this->getListValue($formData['thought_goal_directed']['value'] ?? '', $formData['thought_goal_directed']['list_id'] ?? '')
             ],
             'thought_content' => [
-                'delusions' => $this->getListValue($formData['delusions']['value'] ?? ''),
-                'obsessions' => $this->getListValue($formData['obsessions']['value'] ?? ''),
-                'phobias' => $this->getListValue($formData['phobias']['value'] ?? ''),
-                'suicidal_ideation' => $this->getListValue($formData['suicidal_ideation']['value'] ?? ''),
-                'homicidal_ideation' => $this->getListValue($formData['homicidal_ideation']['value'] ?? '')
+                'delusions' => $this->getListValue($formData['delusions']['value'] ?? '', $formData['delusions']['list_id'] ?? ''),
+                'obsessions' => $this->getListValue($formData['obsessions']['value'] ?? '', $formData['obsessions']['list_id'] ?? ''),
+                'phobias' => $this->getListValue($formData['phobias']['value'] ?? '', $formData['phobias']['list_id'] ?? ''),
+                'suicidal_ideation' => $this->getListValue($formData['suicidal_ideation']['value'] ?? '', $formData['suicidal_ideation']['list_id'] ?? ''),
+                'homicidal_ideation' => $this->getListValue($formData['homicidal_ideation']['value'] ?? '', $formData['homicidal_ideation']['list_id'] ?? '')
             ],
             'perceptual_disturbances' => [
-                'hallucinations_auditory' => $this->getListValue($formData['hallucinations_auditory']['value'] ?? ''),
-                'hallucinations_visual' => $this->getListValue($formData['hallucinations_visual']['value'] ?? ''),
-                'hallucinations_other' => $this->getListValue($formData['hallucinations_other']['value'] ?? '')
+                'hallucinations_auditory' => $this->getListValue($formData['hallucinations_auditory']['value'] ?? '', $formData['hallucinations_auditory']['list_id'] ?? ''),
+                'hallucinations_visual' => $this->getListValue($formData['hallucinations_visual']['value'] ?? '', $formData['hallucinations_visual']['list_id'] ?? ''),
+                'hallucinations_other' => $this->getListValue($formData['hallucinations_other']['value'] ?? '', $formData['hallucinations_other']['list_id'] ?? '')
             ],
             'insight_judgment' => [
-                'insight' => $this->getListValue($formData['insight']['value'] ?? ''),
-                'judgment' => $this->getListValue($formData['judgment']['value'] ?? '')
+                'insight' => $this->getListValue($formData['insight']['value'] ?? '', $formData['insight']['list_id'] ?? ''),
+                'judgment' => $this->getListValue($formData['judgment']['value'] ?? '', $formData['judgment']['list_id'] ?? '')
             ]
         ];
     }
@@ -222,19 +223,19 @@ class AssessmentService
     {
         return [
             'suicide_risk' => [
-                'current_ideation' => $this->getListValue($formData['suicide_current']['value'] ?? ''),
+                'current_ideation' => $this->getListValue($formData['suicide_current']['value'] ?? '', $formData['suicide_current']['list_id'] ?? ''),
                 'plan' => $formData['suicide_plan']['value'] ?? '',
                 'means' => $formData['suicide_means']['value'] ?? '',
-                'history' => $this->getListValue($formData['suicide_history']['value'] ?? ''),
+                'history' => $this->getListValue($formData['suicide_history']['value'] ?? '', $formData['suicide_history']['list_id'] ?? ''),
                 'protective_factors' => $formData['suicide_protective']['value'] ?? ''
             ],
             'violence_risk' => [
-                'current_ideation' => $this->getListValue($formData['violence_current']['value'] ?? ''),
-                'history' => $this->getListValue($formData['violence_history']['value'] ?? ''),
+                'current_ideation' => $this->getListValue($formData['violence_current']['value'] ?? '', $formData['violence_current']['list_id'] ?? ''),
+                'history' => $this->getListValue($formData['violence_history']['value'] ?? '', $formData['violence_history']['list_id'] ?? ''),
                 'triggers' => $formData['violence_triggers']['value'] ?? ''
             ],
             'substance_use' => [
-                'current_use' => $this->getListValue($formData['substance_current']['value'] ?? ''),
+                'current_use' => $this->getListValue($formData['substance_current']['value'] ?? '', $formData['substance_current']['list_id'] ?? ''),
                 'substances' => $formData['substances_used']['value'] ?? '',
                 'frequency' => $formData['substance_frequency']['value'] ?? '',
                 'impact' => $formData['substance_impact']['value'] ?? ''
@@ -268,10 +269,10 @@ class AssessmentService
     private function extractFunctionalAssessment(array $formData): array
     {
         return [
-            'work_functioning' => $this->getListValue($formData['work_functioning']['value'] ?? ''),
-            'social_functioning' => $this->getListValue($formData['social_functioning']['value'] ?? ''),
-            'family_functioning' => $this->getListValue($formData['family_functioning']['value'] ?? ''),
-            'self_care' => $this->getListValue($formData['self_care']['value'] ?? ''),
+            'work_functioning' => $this->getListValue($formData['work_functioning']['value'] ?? '', $formData['work_functioning']['list_id'] ?? ''),
+            'social_functioning' => $this->getListValue($formData['social_functioning']['value'] ?? '', $formData['social_functioning']['list_id'] ?? ''),
+            'family_functioning' => $this->getListValue($formData['family_functioning']['value'] ?? '', $formData['family_functioning']['list_id'] ?? ''),
+            'self_care' => $this->getListValue($formData['self_care']['value'] ?? '', $formData['self_care']['list_id'] ?? ''),
             'activities_daily_living' => $formData['adl_description']['value'] ?? ''
         ];
     }
@@ -288,7 +289,7 @@ class AssessmentService
             'primary_diagnosis' => $formData['primary_diagnosis']['value'] ?? '',
             'secondary_diagnoses' => $formData['secondary_diagnoses']['value'] ?? '',
             'rule_out_diagnoses' => $formData['rule_out_diagnoses']['value'] ?? '',
-            'severity' => $this->getListValue($formData['diagnosis_severity']['value'] ?? '')
+            'severity' => $this->getListValue($formData['diagnosis_severity']['value'] ?? '', $formData['diagnosis_severity']['list_id'] ?? '')
         ];
     }
 
@@ -338,7 +339,7 @@ class AssessmentService
         return [
             'personal_strengths' => $formData['personal_strengths']['value'] ?? '',
             'coping_skills' => $formData['coping_skills']['value'] ?? '',
-            'motivation_change' => $this->getListValue($formData['motivation_change']['value'] ?? ''),
+            'motivation_change' => $this->getListValue($formData['motivation_change']['value'] ?? '', $formData['motivation_change']['list_id'] ?? ''),
             'treatment_goals' => $formData['treatment_goals']['value'] ?? '',
             'available_resources' => $formData['available_resources']['value'] ?? ''
         ];
@@ -376,16 +377,22 @@ class AssessmentService
      * @param string $value List option value
      * @return string Human-readable value
      */
-    private function getListValue(string $value): string
+    private function getListValue(string $value, string $listId = ''): string
     {
-        if (empty($value)) {
-            return '';
+        if ($value === '' || $listId === '') { return $value; }
+        $labels = [];
+        foreach (explode('|', $value) as $option) {
+            $option = trim($option);
+            if ($option === '') { continue; }
+            $key = $listId . ':' . $option;
+            if (!array_key_exists($key, $this->listValueCache)) {
+                $row = sqlQuery('SELECT title FROM list_options WHERE list_id = ? AND option_id = ? LIMIT 1', [$listId, $option]);
+                $this->listValueCache[$key] = isset($row['title']) && $row['title'] !== ''
+                    ? $row['title'] : 'Unrecognized option (' . $listId . '/' . $option . ')';
+            }
+            $labels[] = $this->listValueCache[$key];
         }
-
-        // For now, return the value as-is
-        // In a full implementation, you would query the list_options table
-        // to get the human-readable title for the option
-        return $value;
+        return implode('; ', $labels);
     }
 
     /**

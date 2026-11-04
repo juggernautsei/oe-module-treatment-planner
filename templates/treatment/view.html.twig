@@ -87,6 +87,7 @@
                                     {% if plan.status != 'finalized' %}<a href="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/treatment/edit?id={{ plan.id }}" class="btn btn-primary">
                                         {{ "Edit Plan"|xlt }}
                                     </a>{% endif %}
+                                    <a class="btn btn-outline-primary" href="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/treatment/history?id={{ plan.id|attr }}">{{ "Revision History"|xlt }}</a>
                                     <button type="button" id="print-btn" class="btn btn-secondary no-print">
                                         <i class="fa fa-print"></i> {{ "Print"|xlt }}
                                     </button>

@@ -210,3 +210,12 @@ The revision table is required for plan updates after this upgrade. The migratio
 - [Original upstream project](https://github.com/juggernautsei/oe-module-treatment-planner)
 
 This additional `.github/README.md` displays a snapshot of the existing project README above, followed by the fork's contribution notes. GitHub gives this file priority in the repository README panel; the root README remains a separate file.
+
+
+---
+
+## Latest improvements: version 1.0.2
+
+See [the consolidated improvements overview](../IMPROVEMENTS.md), [the detailed edit log](../EDITS-1.0.2.md), and [testing instructions](../tests/README.md).
+
+The new release removes the Weno dependency, automates schema upgrades, resolves assessment labels, repairs usage reporting, improves section extraction, and adds revision history browsing and side-by-side comparison. Earlier limitations described above about manual migration and the absence of a history screen are superseded by version 1.0.2. The root README remains unchanged.

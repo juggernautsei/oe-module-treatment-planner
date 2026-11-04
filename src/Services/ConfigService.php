@@ -209,6 +209,8 @@ class ConfigService
         
         // Simple cURL request to test the API connection
         $ch = curl_init('https://api.openai.com/v1/models');
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
             'Content-Type: application/json',

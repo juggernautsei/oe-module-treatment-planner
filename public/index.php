@@ -32,6 +32,14 @@ if (!hasTreatmentPlannerAccess()) {
     exit;
 }
 
+try {
+    \OpenEMR\Modules\TreatmentPlanner\Services\SchemaService::assertReady();
+} catch (\RuntimeException $e) {
+    http_response_code(503);
+    echo '<div class="alert alert-warning">' . text($e->getMessage()) . '</div>';
+    exit;
+}
+
 // Note: CSRF validation is handled by individual controllers to prevent double validation
 
 $router = new Router();
@@ -41,6 +49,7 @@ const MODULE_ROUTE = "/interface/modules/custom_modules/oe-module-treatment-plan
 $router
     ->get($webroot . MODULE_ROUTE . "/dashboard", [Dashboard::class, 'indexAction'])
     ->get($webroot . MODULE_ROUTE . "/treatment/list", [TreatmentController::class, 'listAction'])
+    ->get($webroot . MODULE_ROUTE . "/treatment/history", [TreatmentController::class, 'historyAction'])
     ->get($webroot . MODULE_ROUTE . "/treatment/view", [TreatmentController::class, 'viewAction'])
     ->get($webroot . MODULE_ROUTE . "/treatment/create", [TreatmentController::class, 'createAction'])
     ->post($webroot . MODULE_ROUTE . "/treatment/create", [TreatmentController::class, 'createAction'])

@@ -84,6 +84,7 @@ class TreatmentService
         if (mb_strlen($observations) > 20000) {
             throw new Exception('Clinical observations must be 20000 characters or fewer.');
         }
+        SchemaService::assertReady();
         // Get comprehensive assessment data for the AI prompt
         $assessmentData = $this->assessmentService->getComprehensiveAssessmentData($patientId, $encounterId);
         
@@ -191,6 +192,7 @@ class TreatmentService
      */
     public function updateTreatmentPlan(int $planId, array $data, int $providerId): bool
     {
+        SchemaService::assertReady();
         // Lock the row so concurrent edits cannot silently overwrite one another.
         QueryUtils::sqlStatementThrowException('START TRANSACTION');
         try {
@@ -322,6 +324,34 @@ class TreatmentService
         }));
     }
     
+    /** Patient-scoped snapshots, paginated without exposing other charts. */
+    public function getRevisionHistory(int $planId, int $page = 1): array
+    {
+        $plan = $this->getTreatmentPlan($planId);
+        if (!$plan) { throw new Exception('Treatment plan not found'); }
+        SchemaService::assertReady();
+        $page = max(1, $page);
+        $count = QueryUtils::querySingleRow('SELECT COUNT(*) AS total FROM module_treatment_planner_revisions WHERE plan_id = ?', [$planId]);
+        $total = (int)($count['total'] ?? 0);
+        $pages = max(1, (int)ceil($total / 25));
+        $page = min($page, $pages);
+        $offset = ($page - 1) * 25;
+        $rows = QueryUtils::fetchRecords('SELECT r.*, CONCAT(u.fname, \' \', u.lname) AS archived_by_name
+            FROM module_treatment_planner_revisions r LEFT JOIN users u ON r.changed_by = u.id
+            WHERE r.plan_id = ? ORDER BY r.version DESC LIMIT 25 OFFSET ' . $offset, [$planId]);
+        return ['plan' => $plan, 'revisions' => $rows, 'page' => $page, 'pages' => $pages, 'total' => $total];
+    }
+
+    public function getRevision(int $planId, int $version): array
+    {
+        $plan = $this->getTreatmentPlan($planId);
+        if (!$plan) { throw new Exception('Treatment plan not found'); }
+        if ($version === (int)$plan['version']) { return $plan; }
+        $revision = QueryUtils::querySingleRow('SELECT * FROM module_treatment_planner_revisions WHERE plan_id = ? AND version = ?', [$planId, $version]);
+        if (!$revision) { throw new Exception('Revision not found for this treatment plan'); }
+        return $revision;
+    }
+
     /**
      * Change the status of a treatment plan
      * 

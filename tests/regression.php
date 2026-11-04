@@ -13,7 +13,14 @@ namespace OpenEMR\Common\Database {
         public static array $plan = [];
         public static array $queries = [];
         public static bool $failArchive = false;
-        public static function querySingleRow($sql, $params = []) { return self::$plan; }
+        public static $singleHandler = null;
+        public static $fetchHandler = null;
+        public static function querySingleRow($sql, $params = []) {
+            return self::$singleHandler ? (self::$singleHandler)($sql, $params) : self::$plan;
+        }
+        public static function fetchRecords($sql, $params = []) {
+            return self::$fetchHandler ? (self::$fetchHandler)($sql, $params) : [];
+        }
         public static function sqlStatementThrowException($sql, $params = []) {
             self::$queries[] = [$sql, $params];
             if (self::$failArchive && strpos($sql, 'INSERT INTO') === 0) {
@@ -30,7 +37,13 @@ namespace {
     use OpenEMR\Modules\TreatmentPlanner\Services\TreatmentService;
     use OpenEMR\Modules\TreatmentPlanner\Services\OpenAIService;
 
-    function sqlQuery($sql, $params = []) { return ['sensitivity' => $GLOBALS['testSensitivity'] ?? 'normal']; }
+    function sqlQuery($sql, $params = []) {
+        if (strpos($sql, 'GET_LOCK') !== false) { return ['acquired' => 1]; }
+        if (strpos($sql, 'information_schema.TABLES') !== false) { return ['table_count' => $GLOBALS['testTableCount'] ?? 5]; }
+        if (strpos($sql, 'information_schema.COLUMNS') !== false) { return ['IS_NULLABLE' => 'YES']; }
+        if (strpos($sql, 'FROM list_options') !== false) { return $GLOBALS['testLists'][$params[0]][$params[1]] ?? []; }
+        return ['sensitivity' => $GLOBALS['testSensitivity'] ?? 'normal'];
+    }
     function xlt($text) { return $text; }
     $fixture = sys_get_temp_dir() . '/treatment-planner-test-' . getmypid();
     mkdir($fixture . '/library', 0777, true);

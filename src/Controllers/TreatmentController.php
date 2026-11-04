@@ -292,6 +292,26 @@ class TreatmentController
         }
     }
 
+    /** Read-only history and side-by-side comparison, including finalized plans. */
+    public function historyAction(): void
+    {
+        try {
+            $id = (int)($_GET['id'] ?? 0);
+            $history = $this->treatmentService->getRevisionHistory($id, (int)($_GET['page'] ?? 1));
+            $currentVersion = (int)$history['plan']['version'];
+            $left = (int)($_GET['left'] ?? ($history['revisions'][0]['version'] ?? $currentVersion));
+            $right = (int)($_GET['right'] ?? $currentVersion);
+            $history['left'] = $this->treatmentService->getRevision($id, $left);
+            $history['right'] = $this->treatmentService->getRevision($id, $right);
+            $history['webroot'] = $GLOBALS['webroot'];
+            $history['module_name'] = 'oe-module-treatment-planner';
+            echo $this->twig->getTwig()->render('treatment/history.html.twig', $history);
+        } catch (Exception $e) {
+            http_response_code(400);
+            echo $this->twig->getTwig()->render('error.html.twig', ['error' => $e->getMessage()]);
+        }
+    }
+
     /**
      * Handle listing of patient treatment plans
      *

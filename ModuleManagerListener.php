@@ -31,7 +31,8 @@
 */
 
 use OpenEMR\Core\AbstractModuleActionListener;
-use OpenEMR\Modules\WenoModule\Services\ModuleService;
+require_once __DIR__ . '/src/Services/SchemaService.php';
+use OpenEMR\Modules\TreatmentPlanner\Services\SchemaService;
 
 /* Allows maintenance of background tasks depending on Module Manager action. */
 
@@ -50,11 +51,14 @@ class ModuleManagerListener extends AbstractModuleActionListener
      */
     public function moduleManagerAction($methodName, $modId, string $currentActionStatus = 'Success'): string
     {
-        if (method_exists(self::class, $methodName)) {
-            return self::$methodName($modId, $currentActionStatus);
-        } else {
-            // no reason to report action method is missing.
-            return $currentActionStatus;
+        $actions = ['install', 'enable', 'disable', 'unregister', 'install_sql', 'upgrade_sql', 'help_requested'];
+        if (!in_array($methodName, $actions, true)) { return $currentActionStatus; }
+        if ($currentActionStatus !== 'Success') { return $currentActionStatus; }
+        try {
+            return $this->$methodName($modId, $currentActionStatus);
+        } catch (\Throwable $e) {
+            error_log('Treatment Planner module action failed: ' . $e->getMessage());
+            return 'Treatment Planner action failed. Check the server log and database permissions, then retry.';
         }
     }
 
@@ -69,7 +73,7 @@ class ModuleManagerListener extends AbstractModuleActionListener
     {
         // Module Manager will register this namespace.
         // You don't have to use the OpenEMR namespace. You can create your own namespace.
-        return 'OpenEMR\\Module\\TreatmentPlanner\\App\\';
+        return 'OpenEMR\\Modules\\TreatmentPlanner\\';
     }
 
     /**
@@ -90,13 +94,8 @@ class ModuleManagerListener extends AbstractModuleActionListener
      */
     private function install($modId, $currentActionStatus)
     {
-        $modService = new ModuleService();
-        /* setting the active ui flag here will allow the config button to show
-         * before enable. This is a good thing because it allows the user to
-         * configure the module before enabling it. However, if the module is disabled
-         * this flag is reset by MM.
-        */
-        $modService::setModuleState($modId, '0', '1');
+        SchemaService::migrate();
+        self::setModuleActiveState($modId, '0', '1');
         return $currentActionStatus;
     }
 
@@ -122,12 +121,7 @@ class ModuleManagerListener extends AbstractModuleActionListener
      */
     private function enable($modId, $currentActionStatus)
     {
-        $logMessage = 'Skeleton Background tasks have been enabled';
-        // Register background services
-//        $sql = "UPDATE `background_services` SET `active` = '1' WHERE `name` = ? OR `name` = ? OR `name` = ?";
-//        $status = sqlQuery($sql, array('Skeleton_Send', 'Skeleton_Receive', 'Skeleton_Send_Receive'));
-//        error_log($logMessage . ' ' . text($status));
-        // Return the current action status from Module Manager in case of error from its action.
+        SchemaService::migrate();
         return $currentActionStatus;
     }
 
@@ -139,7 +133,7 @@ class ModuleManagerListener extends AbstractModuleActionListener
     private function disable($modId, $currentActionStatus)
     {
         // allow config button to show before enable.
-        ModuleService::setModuleState($modId, '0', '1');
+        self::setModuleActiveState($modId, '0', '1');
         return $currentActionStatus;
     }
 
@@ -162,6 +156,7 @@ class ModuleManagerListener extends AbstractModuleActionListener
      */
     private function install_sql($modId, $currentActionStatus)
     {
+        SchemaService::migrate();
         return $currentActionStatus;
     }
 
@@ -172,6 +167,7 @@ class ModuleManagerListener extends AbstractModuleActionListener
      */
     private function upgrade_sql($modId, $currentActionStatus)
     {
+        SchemaService::migrate();
         return $currentActionStatus;
     }
 }

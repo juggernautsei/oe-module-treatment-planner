@@ -24,5 +24,15 @@
     "config": {
         "optimize-autoloader": true,
         "sort-packages": true
+    },
+    "require-dev": {
+        "twig/twig": "^3.0"
+    },
+    "scripts": {
+        "test": [
+            "@php tests/followup.php",
+            "@php tests/template.php"
+        ],
+        "test:database": "@php tests/database.php"
     }
 }

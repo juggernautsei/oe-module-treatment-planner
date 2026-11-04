@@ -21,6 +21,13 @@ use DateTime;
  */
 class UsageService
 {
+    private array $pricing;
+
+    /** Optional administrator-supplied USD rates per million tokens, keyed by exact model. */
+    public function __construct(?array $pricing = null)
+    {
+        $this->pricing = $pricing ?? ($GLOBALS['treatment_planner_token_pricing'] ?? []);
+    }
     /**
      * Track API usage by provider
      * 
@@ -72,30 +79,18 @@ class UsageService
      * @param int $completionTokens Number of tokens in the completion
      * @return float Estimated cost in USD
      */
-    private function calculateCost(string $model, int $promptTokens, int $completionTokens): float
+    private function calculateCost(string $model, int $promptTokens, int $completionTokens): ?float
     {
-        // Pricing as of 2023-2024, may need updates as OpenAI pricing changes
-        $pricing = [
-            'gpt-4' => [
-                'prompt' => 0.03,      // $0.03 per 1K tokens 
-                'completion' => 0.06   // $0.06 per 1K tokens
-            ],
-            'gpt-3.5-turbo' => [
-                'prompt' => 0.0015,    // $0.0015 per 1K tokens
-                'completion' => 0.002  // $0.002 per 1K tokens
-            ]
-        ];
-        
-        // Default to gpt-3.5-turbo pricing if model not found
-        $modelPricing = $pricing[$model] ?? $pricing['gpt-3.5-turbo'];
-        
-        // Calculate cost
-        $promptCost = ($promptTokens / 1000) * $modelPricing['prompt'];
-        $completionCost = ($completionTokens / 1000) * $modelPricing['completion'];
-        
-        return $promptCost + $completionCost;
+        $rates = $this->pricing[$model] ?? null;
+        if (!is_array($rates) || !isset($rates['prompt'], $rates['completion'])
+            || !is_numeric($rates['prompt']) || !is_numeric($rates['completion'])
+            || !is_finite((float)$rates['prompt']) || !is_finite((float)$rates['completion'])
+            || $rates['prompt'] < 0 || $rates['completion'] < 0) {
+            return null;
+        }
+        return ($promptTokens * (float)$rates['prompt'] + $completionTokens * (float)$rates['completion']) / 1000000;
     }
-    
+
     /**
      * Get usage statistics by date range
      * 
@@ -132,7 +127,8 @@ class UsageService
         $sql = "SELECT 
                     COUNT(*) as total_calls,
                     SUM(total_tokens) as total_tokens,
-                    SUM(estimated_cost) as total_cost,
+                    CASE WHEN SUM(estimated_cost IS NULL) > 0 THEN NULL ELSE SUM(estimated_cost) END as total_cost,
+                    SUM(estimated_cost IS NULL) as unpriced_calls,
                     AVG(duration_seconds) as avg_duration
                 FROM `module_treatment_planner_usage`
                 WHERE $whereClause";
@@ -144,7 +140,8 @@ class UsageService
                     model,
                     COUNT(*) as calls,
                     SUM(total_tokens) as tokens,
-                    SUM(estimated_cost) as cost
+                    CASE WHEN SUM(estimated_cost IS NULL) > 0 THEN NULL ELSE SUM(estimated_cost) END as cost,
+                    SUM(estimated_cost IS NULL) as unpriced_calls
                 FROM `module_treatment_planner_usage`
                 WHERE $whereClause
                 GROUP BY model";
@@ -153,15 +150,16 @@ class UsageService
         
         // Get usage by provider
         $sql = "SELECT 
-                    u.provider_id,
+                    t.provider_id,
                     CONCAT(u.fname, ' ', u.lname) as provider_name,
                     COUNT(t.id) as calls,
                     SUM(t.total_tokens) as tokens,
-                    SUM(t.estimated_cost) as cost
+                    CASE WHEN SUM(t.estimated_cost IS NULL) > 0 THEN NULL ELSE SUM(t.estimated_cost) END as cost,
+                    SUM(t.estimated_cost IS NULL) as unpriced_calls
                 FROM `module_treatment_planner_usage` t
                 JOIN `users` u ON t.provider_id = u.id
                 WHERE $whereClause
-                GROUP BY t.provider_id
+                GROUP BY t.provider_id, u.fname, u.lname
                 ORDER BY tokens DESC";
         
         $providerStats = QueryUtils::fetchRecords($sql, $params);
@@ -171,7 +169,8 @@ class UsageService
                     DATE(usage_datetime) as date,
                     COUNT(*) as calls,
                     SUM(total_tokens) as tokens,
-                    SUM(estimated_cost) as cost
+                    CASE WHEN SUM(estimated_cost IS NULL) > 0 THEN NULL ELSE SUM(estimated_cost) END as cost,
+                    SUM(estimated_cost IS NULL) as unpriced_calls
                 FROM `module_treatment_planner_usage`
                 WHERE $whereClause
                 GROUP BY DATE(usage_datetime)

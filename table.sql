@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS `module_treatment_planner_usage` (
   `completion_tokens` int(11) NOT NULL DEFAULT 0,
   `total_tokens` int(11) NOT NULL DEFAULT 0,
   `duration_seconds` float NOT NULL DEFAULT 0,
-  `estimated_cost` decimal(10,6) NOT NULL DEFAULT 0.000000,
+  `estimated_cost` decimal(10,6) DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `provider_id_index` (`provider_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

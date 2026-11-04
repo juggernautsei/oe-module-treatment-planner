@@ -1,0 +1,39 @@
+{% extends "treatment/base.html.twig" %}
+{% block treatment_content %}
+{% set history_url = webroot ~ '/interface/modules/custom_modules/' ~ module_name ~ '/public/index.php/treatment/history' %}
+<h2>{{ "Treatment Plan Revision History"|xlt }}</h2>
+<p>{{ "Patient"|xlt }}: {{ plan.fname|text }} {{ plan.lname|text }} · {{ "Current version"|xlt }}: {{ plan.version|text }}</p>
+<a class="btn btn-secondary mb-3" href="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/treatment/view?id={{ plan.id|attr }}">{{ "Back to Plan"|xlt }}</a>
+<p>{{ "History begins with the first update after revision tracking was installed. Earlier overwritten versions cannot be recovered."|xlt }}</p>
+<form method="get" action="{{ history_url|attr }}" class="mb-3">
+  <input type="hidden" name="id" value="{{ plan.id|attr }}">
+  <label for="left-version">{{ "Earlier version"|xlt }}</label>
+  <input id="left-version" type="number" name="left" min="1" max="{{ plan.version|attr }}" value="{{ left.version|attr }}" required>
+  <label for="right-version">{{ "Later version"|xlt }}</label>
+  <input id="right-version" type="number" name="right" min="1" max="{{ plan.version|attr }}" value="{{ right.version|attr }}" required>
+  <button class="btn btn-primary" type="submit">{{ "Compare Versions"|xlt }}</button>
+</form>
+<div class="row">
+  {% for revision in [left, right] %}
+  <section class="col-md-6 mb-3">
+    <h3>{{ "Version"|xlt }} {{ revision.version|text }} · {{ revision.status|text }}</h3>
+    <p>{{ "Saved"|xlt }}: {{ revision.date_updated|text }}</p>
+    <pre class="border p-3" style="white-space: pre-wrap; overflow-wrap: anywhere">{{ revision.content|text }}</pre>
+  </section>
+  {% endfor %}
+</div>
+<table class="table table-striped">
+  <caption>{{ "Archived versions"|xlt }}</caption>
+  <thead><tr><th scope="col">{{ "Version"|xlt }}</th><th scope="col">{{ "Status"|xlt }}</th><th scope="col">{{ "Archived"|xlt }}</th><th scope="col">{{ "Archived by"|xlt }}</th><th scope="col">{{ "Compare"|xlt }}</th></tr></thead>
+  <tbody>{% for revision in revisions %}<tr>
+    <td>{{ revision.version|text }}</td><td>{{ revision.status|text }}</td><td>{{ revision.date_archived|text }}</td>
+    <td>{{ revision.archived_by_name|default(revision.changed_by)|text }}</td>
+    <td><a href="{{ history_url|attr }}?id={{ plan.id|attr }}&amp;left={{ revision.version|attr }}&amp;right={{ plan.version|attr }}">{{ "Compare with current"|xlt }}</a></td>
+  </tr>{% else %}<tr><td colspan="5">{{ "No archived versions yet."|xlt }}</td></tr>{% endfor %}</tbody>
+</table>
+<nav aria-label="{{ 'Revision history pages'|xlt }}">
+  {% if page > 1 %}<a href="{{ history_url|attr }}?id={{ plan.id|attr }}&amp;page={{ (page - 1)|attr }}">{{ "Previous"|xlt }}</a>{% endif %}
+  <span>{{ "Page"|xlt }} {{ page|text }} / {{ pages|text }}</span>
+  {% if page < pages %}<a href="{{ history_url|attr }}?id={{ plan.id|attr }}&amp;page={{ (page + 1)|attr }}">{{ "Next"|xlt }}</a>{% endif %}
+</nav>
+{% endblock %}

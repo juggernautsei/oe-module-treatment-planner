@@ -234,27 +234,35 @@ class OpenAIService
      */
     public function extractSections(string $content): array
     {
-        $sections = [];
-        
-        // Common section patterns to look for
-        $sectionPatterns = [
-            'diagnosis' => '/(?:diagnosis|problem statement|clinical impression)(?:\s*:|\s*\n)(.*?)(?=\n\s*\d\.|\n\s*[A-Z]|\Z)/is',
-            'goals' => '/(?:long.?term goals|treatment goals)(?:\s*:|\s*\n)(.*?)(?=\n\s*\d\.|\n\s*[A-Z]|\Z)/is',
-            'objectives' => '/(?:short.?term objectives|objectives|treatment objectives)(?:\s*:|\s*\n)(.*?)(?=\n\s*\d\.|\n\s*[A-Z]|\Z)/is',
-            'interventions' => '/(?:interventions|strategies|treatment strategies)(?:\s*:|\s*\n)(.*?)(?=\n\s*\d\.|\n\s*[A-Z]|\Z)/is',
-            'timeline' => '/(?:timeline|treatment duration|timeframe)(?:\s*:|\s*\n)(.*?)(?=\n\s*\d\.|\n\s*[A-Z]|\Z)/is',
-            'progress' => '/(?:progress measurement|assessment|evaluation)(?:\s*:|\s*\n)(.*?)(?=\n\s*\d\.|\n\s*[A-Z]|\Z)/is'
+        $content = preg_replace('/<\s*(?:br\b[^>]*|\/p|\/div|\/li|\/h[1-6])\s*>/i', "\n", $content);
+        $content = html_entity_decode(strip_tags($content), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $content = str_replace(['**', '__'], '', $content);
+        $names = [
+            'diagnosis' => 'diagnosis|problem statement|clinical impression',
+            'goals' => 'long.term goals|treatment goals',
+            'objectives' => 'short.term objectives|objectives|treatment objectives',
+            'interventions' => 'interventions|strategies|treatment strategies',
+            'timeline' => 'timeline|treatment duration|timeframe',
+            'progress' => 'criteria for success|progress measurement|assessment|evaluation'
         ];
-        
-        foreach ($sectionPatterns as $key => $pattern) {
-            if (preg_match($pattern, $content, $matches)) {
-                $sections[$key] = trim($matches[1]);
+        $all = implode('|', $names);
+        $pattern = '/^\h*(?:\#{1,6}\h*)?(?:\d+[.)]\h*)?(' . $all . ')(?:\h*\([^\r\n)]*\))?\h*(?::\h*([^\r\n]*))?\h*\r?$/im';
+        preg_match_all($pattern, $content, $matches, PREG_OFFSET_CAPTURE);
+        $sections = [];
+        foreach ($matches[0] as $i => $heading) {
+            $start = $heading[1] + strlen($heading[0]);
+            $end = $matches[0][$i + 1][1] ?? strlen($content);
+            $text = trim(($matches[2][$i][0] ?? '') . "\n" . substr($content, $start, $end - $start));
+            foreach ($names as $key => $aliases) {
+                if (preg_match('/^(?:' . $aliases . ')$/i', $matches[1][$i][0])) {
+                    $sections[$key] = isset($sections[$key]) ? $sections[$key] . "\n" . $text : $text;
+                    break;
+                }
             }
         }
-        
         return $sections;
     }
-    
+
     /**
      * Estimate token count for a given text string
      * This is a simplified estimator as exact token count requires the tokenizer
