@@ -18,6 +18,11 @@ use OpenEMR\Core\Header;
 use OpenEMR\Common\Csrf\CsrfUtils;
 use OpenEMR\Modules\TreatmentPlanner\Services\ConfigService;
 
+if (!\OpenEMR\Common\Acl\AclMain::aclCheckCore('admin', 'manage_modules')) {
+    http_response_code(403);
+    exit(xlt('Access denied'));
+}
+
 // Instantiate the ConfigService for API key management
 $configService = new ConfigService();
 

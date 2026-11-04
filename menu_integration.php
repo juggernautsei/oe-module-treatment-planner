@@ -116,12 +116,7 @@ function hasTreatmentPlannerAccess()
         return false;
     }
 
-    // Check for specific ACL permissions if needed
-    // For now, allow all authenticated users
-    // In production, you might want to check specific ACLs:
-    // return acl_check('patients', 'med');
-
-    return true;
+    return \OpenEMR\Common\Acl\AclMain::aclCheckCore('patients', 'med');
 }
 
 /**

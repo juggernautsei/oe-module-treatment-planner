@@ -44,6 +44,7 @@ $router
     ->get($webroot . MODULE_ROUTE . "/treatment/view", [TreatmentController::class, 'viewAction'])
     ->get($webroot . MODULE_ROUTE . "/treatment/create", [TreatmentController::class, 'createAction'])
     ->post($webroot . MODULE_ROUTE . "/treatment/create", [TreatmentController::class, 'createAction'])
+    ->post($webroot . MODULE_ROUTE . "/treatment/revise", [TreatmentController::class, 'reviseAction'])
     ->get($webroot . MODULE_ROUTE . "/treatment/edit", [TreatmentController::class, 'editAction'])
     ->post($webroot . MODULE_ROUTE . "/treatment/edit", [TreatmentController::class, 'editAction'])
     ->post($webroot . MODULE_ROUTE . "/treatment/finalize", [TreatmentController::class, 'finalizeAction'])
