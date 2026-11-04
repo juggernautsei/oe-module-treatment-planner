@@ -98,7 +98,7 @@ The API key is stored encrypted in `module_treatment_planner_config`.
 
 ## Uninstall
 
-Unregistering the module through Module Manager runs cleanup that drops the module tables. Export any needed plan data before uninstalling.
+Unregistering preserves plan records, revision history, settings, and shared OpenEMR layouts. Permanent deletion must be performed separately by an administrator under the organization's retention policy.
 
 ## Contributing
 
@@ -112,3 +112,19 @@ This module is licensed under the GNU General Public License, version 3 or any l
 
 Sherwin Gaddis / Juggernaut Systems Express  
 https://github.com/juggernautsei
+
+
+## Upgrading to 1.0.1
+
+Back up the database, then run `sql/upgrade-1.0.1.sql` against the selected OpenEMR site's database before deploying these files. The migration is additive and can be rerun. Existing overwritten content cannot be recovered; snapshots begin with the first update after upgrade. Do not deploy without the revision table.
+
+Medical-record ACL access and a selected patient chart are required. Edits require full `patients/med` write permission; approval and finalization also require `patients/sign` write permission. Encounter sensitivity is checked. Status transitions are draft → pending review → approved → finalized, with returns to draft/review. Finalized plans are immutable. Changed content must be saved as draft and reviewed again.
+
+Every update archives the previous state and its author, records the updating user, and increments the version. Stale browser submissions are rejected. Revision history is retained in the database; a history comparison interface is not yet included. PDF export uses the browser print dialog's Save as PDF option.
+
+AI drafts and revised observations require clinician verification. Risk prompt routing only recognizes explicit high/immediate assessment labels and does not determine clinical risk. Free-text assessments can contain identifying data: review the information sent to the external AI service under your organization's policies.
+
+
+## Verification
+
+Run `php tests/regression.php` for isolated authorization, workflow, revision failure, response validation, and risk-routing checks. These use OpenEMR test doubles and do not replace testing against a running OpenEMR site. Before deployment, apply the migration on a test database, verify ACL roles and encounter sensitivity, exercise the review workflow in two browser tabs, and verify AI generation, revision, and print/PDF behavior. Dashboard counts are scoped to the selected patient's accessible encounters.

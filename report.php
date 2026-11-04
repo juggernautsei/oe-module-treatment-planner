@@ -15,6 +15,12 @@ require_once(dirname(__FILE__, 5) . '/library/api.inc.php');
 
 function treatment_planner_report($pid, $encounter, $cols, $id)
 {
+    try {
+        \OpenEMR\Modules\TreatmentPlanner\Services\AccessService::assertPatient((int)$pid, false, (int)$encounter);
+    } catch (\RuntimeException $e) {
+        print xlt('Access denied');
+        return;
+    }
     // Query the treatment planner table
     $query = "SELECT tp.*,
                      CONCAT(p.fname, ' ', p.lname) as patient_name,

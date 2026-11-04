@@ -84,15 +84,15 @@
                         <div class="row mt-4">
                             <div class="col-md-12">
                                 <div class="btn-group no-print" role="group">
-                                    <a href="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/treatment/edit?id={{ plan.id }}" class="btn btn-primary">
+                                    {% if plan.status != 'finalized' %}<a href="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/treatment/edit?id={{ plan.id }}" class="btn btn-primary">
                                         {{ "Edit Plan"|xlt }}
-                                    </a>
+                                    </a>{% endif %}
                                     <button type="button" id="print-btn" class="btn btn-secondary no-print">
                                         <i class="fa fa-print"></i> {{ "Print"|xlt }}
                                     </button>
-                                    <a href="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/treatment_pdf.php?id={{ plan.id }}" class="btn btn-info no-print">
-                                        <i class="fa fa-file-pdf"></i> {{ "Export PDF"|xlt }}
-                                    </a>
+                                    <button type="button" class="btn btn-info no-print" onclick="window.print()">
+                                        {{ "Save as PDF / Print"|xlt }}
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -106,6 +106,7 @@
                                     <form id="status-form" class="status-form no-print">
                                         <input type="hidden" name="csrf_token_form" value="{{ csrf_token_form|attr }}">
                                         <input type="hidden" name="plan_id" value="{{ plan.id|attr }}">
+                                        <input type="hidden" name="expected_version" value="{{ plan.version|attr }}">
                                         
                                         <div class="workflow-actions">
                                             {% if plan.status == 'draft' %}
@@ -180,7 +181,7 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     // Print functionality
-    document.getElementById('print-btn').addEventListener('click', function() {
+    document.getElementById('print-btn')?.addEventListener('click', function() {
         window.print();
     });
     
@@ -207,7 +208,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Submit via AJAX
                 const formData = new FormData(form);
                 
-                fetch('{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/treatment_change_status.php', {
+                fetch('{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/treatment/change-status', {
                     method: 'POST',
                     body: formData
                 })

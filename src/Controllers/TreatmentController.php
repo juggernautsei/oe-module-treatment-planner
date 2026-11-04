@@ -71,14 +71,15 @@ class TreatmentController
      */
     public function createAction(): void
     {
-        $pid = $_GET['pid'] ?? $_SESSION['pid'];
-        $encounterId = $_GET['encounter'] ?? $_SESSION['encounter'];
+        $pid = $_SERVER['REQUEST_METHOD'] === 'POST' ? ($_POST['pid'] ?? 0) : ($_GET['pid'] ?? $_SESSION['pid'] ?? 0);
+        $encounterId = $_SERVER['REQUEST_METHOD'] === 'POST' ? ($_POST['encounter'] ?? 0) : ($_GET['encounter'] ?? $_SESSION['encounter'] ?? 0);
         $formId = $_GET['formid'] ?? 0;
 
         $error = '';
         $plan = null;
 
         try {
+            \OpenEMR\Modules\TreatmentPlanner\Services\AccessService::assertPatient((int)$pid, true, (int)$encounterId);
             // Check if API key is configured
             if (!$this->configService->isApiKeyConfigured()) {
                 $error = xl('OpenAI API key is not configured. Please configure it in the module settings.');
@@ -87,7 +88,7 @@ class TreatmentController
             // Process form submission
             if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_observations'])) {
                 // Verify CSRF
-                if (!CsrfUtils::verifyCsrfToken($_POST['csrf_token_form'], 'treatment-planner')) {
+                if (!CsrfUtils::verifyCsrfToken(($_POST['csrf_token_form'] ?? ''), 'treatment-planner')) {
                     $error = xl('Authentication Error');
                 } else {
                     $observations = $_POST['observations'] ?? '';
@@ -126,14 +127,36 @@ class TreatmentController
                 'error' => $error,
                 'plan' => $plan,
                 'webroot' => $GLOBALS['webroot'],
-                'module_name' => 'oe-module-treatment-planner',
-                'openai_api_key' => $this->configService->getDecryptedApiKey()
+                'module_name' => 'oe-module-treatment-planner'
             ]);
 
         } catch (Exception $e) {
             echo $this->twig->getTwig()->render('error.html.twig', [
                 'error' => $e->getMessage()
             ]);
+        }
+    }
+
+    /** Revise observations using server-managed model and credentials. */
+    public function reviseAction(): void
+    {
+        header('Content-Type: application/json');
+        try {
+            if (!CsrfUtils::verifyCsrfToken($_POST['csrf_token_form'] ?? '', 'treatment-planner')) {
+                http_response_code(403);
+                throw new Exception('Authentication Error');
+            }
+            \OpenEMR\Modules\TreatmentPlanner\Services\AccessService::assertPatient(
+                (int)($_POST['pid'] ?? 0), true, (int)($_POST['encounter'] ?? 0)
+            );
+            $text = trim(strip_tags($_POST['text'] ?? ''));
+            if ($text === '' || mb_strlen($text) > 20000) {
+                throw new Exception('Enter between 1 and 20000 characters.');
+            }
+            echo json_encode(['content' => $this->openAIService->reviseObservations($text, (int)$_SESSION['authUserID'])]);
+        } catch (\Throwable $e) {
+            if (http_response_code() !== 403) { http_response_code(400); }
+            echo json_encode(['error' => $e->getMessage()]);
         }
     }
 
@@ -155,17 +178,21 @@ class TreatmentController
             if (!$plan) {
                 $error = xl('Treatment plan not found');
             } else {
+                \OpenEMR\Modules\TreatmentPlanner\Services\AccessService::assertPatient((int)$plan['patient_id'], true, (int)$plan['encounter_id']);
+                if ($plan['status'] === TreatmentService::STATUS_FINALIZED) {
+                    throw new Exception('Finalized plans are read-only.');
+                }
                 // Process form submission for editing
                 if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['submit_edit']) || isset($_POST['submit_finalize']))) {
                     // Verify CSRF
-                    if (!CsrfUtils::verifyCsrfToken($_POST['csrf_token_form'], 'treatment-planner')) {
+                    if (!CsrfUtils::verifyCsrfToken(($_POST['csrf_token_form'] ?? ''), 'treatment-planner')) {
                         $error = xl('Authentication Error');
                     } else {
                         $content = $_POST['content'] ?? '';
                         $providerId = $_SESSION['authUserID'] ?? 0;
 
                         // Update the treatment plan
-                        $updateData = ['content' => $content];
+                        $updateData = ['content' => $content, 'expected_version' => (int)($_POST['expected_version'] ?? 0)];
 
                         // Handle finalization
                         if (isset($_POST['submit_finalize'])) {
@@ -245,6 +272,7 @@ class TreatmentController
 
             // Render the view template
             echo $this->twig->getTwig()->render('treatment/view.html.twig', [
+                'csrf_token_form' => CsrfUtils::collectCsrfToken('treatment-planner'),
                 'plan' => $plan,
                 'error' => $error,
                 'statuses' => [
@@ -271,8 +299,8 @@ class TreatmentController
      */
     public function listAction(): void
     {
-        $pid = $_GET['pid'] ?? $_SESSION['pid'];
-        $encounterId = $_GET['encounter'] ?? $_SESSION['encounter'];
+        $pid = $_GET['pid'] ?? $_SESSION['pid'] ?? 0;
+        $encounterId = $_GET['encounter'] ?? $_SESSION['encounter'] ?? 0;
         $error = '';
 
         // Validate that we have a valid patient ID
@@ -323,7 +351,7 @@ class TreatmentController
 
         try {
             // Verify CSRF
-            if (!CsrfUtils::verifyCsrfToken($_POST['csrf_token_form'], 'treatment-planner')) {
+            if (!CsrfUtils::verifyCsrfToken(($_POST['csrf_token_form'] ?? ''), 'treatment-planner')) {
                 $response['message'] = xl('Authentication Error');
                 echo json_encode($response);
                 return;
@@ -340,7 +368,7 @@ class TreatmentController
             }
 
             // Change the status
-            if ($this->treatmentService->changeStatus($planId, $status, $providerId)) {
+            if ($this->treatmentService->changeStatus($planId, $status, $providerId, (int)($_POST['expected_version'] ?? 0))) {
                 $response['success'] = true;
                 $response['message'] = xl('Status updated successfully');
             } else {
@@ -363,7 +391,7 @@ class TreatmentController
     {
         try {
             // Verify CSRF
-            if (!CsrfUtils::verifyCsrfToken($_POST['csrf_token_form'], 'treatment-planner')) {
+            if (!CsrfUtils::verifyCsrfToken(($_POST['csrf_token_form'] ?? ''), 'treatment-planner')) {
                 $error = xl('Authentication Error');
                 header('Location: ' . $GLOBALS['webroot'] . '/interface/modules/custom_modules/oe-module-treatment-planner/public/index.php/dashboard?error=' . urlencode($error));
                 return;
@@ -387,7 +415,7 @@ class TreatmentController
             }
 
             // Update to finalized status
-            $updateData = ['status' => 'finalized'];
+            $updateData = ['status' => 'finalized', 'expected_version' => (int)($_POST['expected_version'] ?? 0)];
             
             // Ensure we have encounter and patient data from session
             if (isset($_SESSION['encounter']) && isset($_SESSION['pid'])) {
