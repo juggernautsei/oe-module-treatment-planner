@@ -125,7 +125,7 @@ class PromptGenerationService
         // Only explicit assessment labels can select a high-risk prompt. This is
         // prompt routing, never a substitute for the clinician's risk assessment.
         foreach (['suicide' => 'suicide_risk', 'violence' => 'violence_risk'] as $label => $risk) {
-            if (preg_match('/^' . $label . ' risk:\s*(high|immediate)\s*$/m', $dataLower)) {
+            if (preg_match('/^' . $label . ' risk(?: \/ current ideation)?:\s*(high|immediate)\s*$/m', $dataLower)) {
                 $riskFactors[] = $risk;
             }
         }

@@ -53,6 +53,7 @@
                 {% else %}
                     <form method="post" action="" id="observation-form">
                         <input type="hidden" name="csrf_token_form" value="{{ csrf_token_form|attr }}">
+                        <input type="hidden" name="request_key" value="{{ request_key|attr }}">
                         <input type="hidden" name="pid" value="{{ pid|attr }}">
                         <input type="hidden" name="encounter" value="{{ encounter|attr }}">
 
@@ -70,7 +71,7 @@
                             </div>
 
                             <textarea class="form-control" id="observations" name="observations" rows="8"
-                                      placeholder="{{ 'Enter any additional clinical observations, notes, or specific treatment considerations not captured in the assessment form...'|xlt }}"></textarea>
+                                      placeholder="{{ 'Enter any additional clinical observations, notes, or specific treatment considerations not captured in the assessment form...'|xlt }}">{{ observations|text }}</textarea>
                             <small class="form-text text-muted">
                                 {{ "The treatment plan will be generated based on the patient's assessment data and diagnoses. Add any additional observations or specific treatment preferences here."|xlt }}
                             </small>
@@ -250,6 +251,8 @@
                 document.getElementById('observation-form').addEventListener('submit', function() {
                     // Update textarea with CKEditor content before form submission
                     document.getElementById('observations').value = editor.getData();
+                    const submitButton = this.querySelector('[name="submit_observations"]');
+                    if (submitButton) { submitButton.setAttribute('aria-busy', 'true'); }
                 });
             });
         });

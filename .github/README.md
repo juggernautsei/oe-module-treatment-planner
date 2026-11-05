@@ -219,3 +219,8 @@ This additional `.github/README.md` displays a snapshot of the existing project 
 See [the consolidated improvements overview](../IMPROVEMENTS.md), [the detailed edit log](../EDITS-1.0.2.md), and [testing instructions](../tests/README.md).
 
 The new release removes the Weno dependency, automates schema upgrades, resolves assessment labels, repairs usage reporting, improves section extraction, and adds revision history browsing and side-by-side comparison. Earlier limitations described above about manual migration and the absence of a history screen are superseded by version 1.0.2. The root README remains unchanged.
+
+
+## Latest corrections: version 1.0.3
+
+Read [the detailed edit log](../EDITS-1.0.3.md) and [the consolidated improvements](../IMPROVEMENTS.md). This release completes assessment prompt data, secures template initialization, prevents duplicate generation requests, and repairs setup navigation and validation. Upgrade the database through Module Manager before use.

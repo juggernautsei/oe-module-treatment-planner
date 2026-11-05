@@ -109,10 +109,19 @@ class ConfigService
      */
     public function saveTemperature(float $temperature): bool
     {
-        $temperature = min(1.0, max(0.0, $temperature)); // Ensure value is between 0 and 1
+        $temperature = self::validateTemperature($temperature);
         return $this->saveSetting(self::TEMPERATURE_SETTING, (string)$temperature);
     }
     
+    public static function validateTemperature($value): float
+    {
+        if ((!is_string($value) && !is_float($value) && !is_int($value)) || !is_numeric($value)
+            || !is_finite((float)$value) || (float)$value < 0 || (float)$value > 1) {
+            throw new \InvalidArgumentException('Temperature must be a number between 0 and 1.');
+        }
+        return (float)$value;
+    }
+
     /**
      * Get the configured temperature
      * 

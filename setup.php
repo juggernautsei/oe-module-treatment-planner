@@ -35,49 +35,29 @@ $temperature = $configService->getTemperature();
 $testConnectionResult = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Verify CSRF
-    if (!CsrfUtils::verifyCsrfToken($_POST["csrf_token_form"])) {
+    $token = is_string($_POST['csrf_token_form'] ?? null) ? $_POST['csrf_token_form'] : '';
+    if (!CsrfUtils::verifyCsrfToken($token)) {
         $errorMessage = xl('Authentication Error');
     } else {
-        $updated = false;
-
-        // Process the API key
-        if (isset($_POST['api_key']) && !empty($_POST['api_key'])) {
-            $apiKey = trim($_POST['api_key']);
-            
-            if ($configService->saveApiKey($apiKey)) {
-                $updated = true;
-                $apiKey = ''; // Clear form for security
-            } else {
-                $errorMessage = xl('Error saving API Key');
+        try {
+            // Validate before writing any settings; invalid values are not silently clamped.
+            $newTemperature = ConfigService::validateTemperature($_POST['temperature'] ?? $temperature);
+            $newModel = is_string($_POST['model'] ?? null) ? trim($_POST['model']) : $model;
+            $newKey = is_string($_POST['api_key'] ?? null) ? trim($_POST['api_key']) : '';
+            if ($newModel === '') { throw new InvalidArgumentException('Select a model.'); }
+            if ($newKey !== '' && !$configService->saveApiKey($newKey)) { throw new RuntimeException('Could not save API key.'); }
+            if (!$configService->saveModel($newModel) || !$configService->saveTemperature($newTemperature)) {
+                throw new RuntimeException('Could not save settings.');
             }
-        }
-        
-        // Process the model selection
-        if (isset($_POST['model'])) {
-            $newModel = trim($_POST['model']);
-            if (!empty($newModel)) {
-                if ($configService->saveModel($newModel)) {
-                    $model = $newModel;
-                    $updated = true;
-                }
-            }
-        }
-        
-        // Process the temperature setting
-        if (isset($_POST['temperature'])) {
-            $newTemperature = floatval($_POST['temperature']);
-            if ($configService->saveTemperature($newTemperature)) {
-                $temperature = $newTemperature;
-                $updated = true;
-            }
-        }
-        
-        // Test connection if requested
-        if (isset($_POST['test_connection'])) {
-            $testConnectionResult = $configService->testApiConnection();
-        } else if ($updated) {
-            $successMessage = xl('Configuration saved successfully');
+            $model = $newModel;
+            $temperature = $newTemperature;
+            if (isset($_POST['test_connection'])) { $testConnectionResult = $configService->testApiConnection(); }
+            else { $successMessage = xl('Configuration saved successfully'); }
+        } catch (InvalidArgumentException $e) {
+            $errorMessage = xl($e->getMessage());
+        } catch (Throwable $e) {
+            error_log('Treatment Planner configuration save failed.');
+            $errorMessage = xl('Unable to save settings. Check the server log and database configuration.');
         }
     }
 }
@@ -163,9 +143,9 @@ $apiKeyConfigured = $configService->isApiKeyConfigured();
                             <div class="form-group">
                                 <label for="temperature"><?php echo xlt('Temperature'); ?></label>
                                 <input type="number" class="form-control" id="temperature" name="temperature" 
-                                       min="0" max="2" step="0.1" value="<?php echo attr($temperature); ?>">
+                                       min="0" max="1" step="0.1" value="<?php echo attr($temperature); ?>">
                                 <small class="form-text text-muted">
-                                    <?php echo xlt('Controls randomness: 0 = deterministic, 2 = very random. Recommended: 0.7'); ?>
+                                    <?php echo xlt('Controls randomness: 0 = least variable, 1 = more variable. Recommended: 0.7'); ?>
                                 </small>
                             </div>
                             
@@ -186,14 +166,14 @@ $apiKeyConfigured = $configService->isApiKeyConfigured();
                             <div class="col-md-6">
                                 <h5><?php echo xlt('Usage Information'); ?></h5>
                                 <p class="small text-muted">
-                                    <?php echo xlt('This module uses OpenAI\'s API to generate treatment plans. Usage is tracked and costs are based on OpenAI\'s pricing.'); ?>
+                                    <?php echo xlt('This module uses OpenAI\'s API to generate treatment plans. Usage is tracked. Cost estimates require administrator-configured model rates; otherwise cost is unavailable.'); ?>
                                 </p>
                             </div>
                             <div class="col-md-6">
                                 <h5><?php echo xlt('Quick Links'); ?></h5>
                                 <ul class="list-unstyled small">
-                                    <li><a href="test_setup.php"><?php echo xlt('Test Module Setup'); ?></a></li>
-                                    <li><a href="public/index.php?route=treatment/create"><?php echo xlt('Create Treatment Plan'); ?></a></li>
+                                    <li><a href="initialize_templates.php"><?php echo xlt('Initialize Default Templates'); ?></a></li>
+                                    <li><a href="public/index.php/treatment/create"><?php echo xlt('Create Treatment Plan'); ?></a></li>
                                 </ul>
                             </div>
                         </div>

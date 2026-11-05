@@ -403,108 +403,42 @@ class AssessmentService
      */
     public function formatForAI(array $assessmentData): string
     {
+        // Only the fields explicitly extracted by this module are included. Keep
+        // nested risk details, medication/allergy history and documented negatives.
+        $sections = [
+            'patient_info' => 'PATIENT', 'diagnoses' => 'CURRENT DIAGNOSES',
+            'presenting_problem' => 'PRESENTING PROBLEM', 'mental_status_exam' => 'MENTAL STATUS EXAMINATION',
+            'risk_assessment' => 'RISK ASSESSMENT', 'clinical_history' => 'CLINICAL HISTORY',
+            'functional_assessment' => 'FUNCTIONAL ASSESSMENT', 'diagnostic_impressions' => 'DIAGNOSTIC IMPRESSIONS',
+            'treatment_history' => 'TREATMENT HISTORY', 'psychosocial_factors' => 'PSYCHOSOCIAL FACTORS',
+            'strengths_resources' => 'STRENGTHS AND RESOURCES'
+        ];
         $formatted = "MENTAL HEALTH ASSESSMENT DATA:\n\n";
-
-        // Patient Information
-        if (!empty($assessmentData['patient_info'])) {
-            $patient = $assessmentData['patient_info'];
-            $formatted .= "PATIENT: Age: {$patient['age']}, Gender: {$patient['gender']}, Race: {$patient['race']}\n\n";
-        }
-
-        // Current Diagnoses
-        if (!empty($assessmentData['diagnoses'])) {
-            $formatted .= "CURRENT DIAGNOSES:\n";
-            foreach ($assessmentData['diagnoses'] as $diagnosis) {
-                $formatted .= "- {$diagnosis['title']}";
-                if (!empty($diagnosis['diagnosis_code'])) {
-                    $formatted .= " ({$diagnosis['diagnosis_code']})";
-                }
-                $formatted .= "\n";
+        foreach ($sections as $key => $heading) {
+            $data = $assessmentData[$key] ?? [];
+            if ($key === 'patient_info') {
+                $data = array_intersect_key((array)$data, array_flip(['age', 'gender', 'race']));
             }
-            $formatted .= "\n";
+            $lines = $this->formatAssessmentFields((array)$data);
+            if ($lines !== '') { $formatted .= $heading . ":\n" . $lines . "\n"; }
         }
-
-        // Presenting Problem
-        if (!empty($assessmentData['presenting_problem']['chief_complaint'])) {
-            $formatted .= "PRESENTING PROBLEM:\n";
-            $formatted .= "Chief Complaint: {$assessmentData['presenting_problem']['chief_complaint']}\n";
-            if (!empty($assessmentData['presenting_problem']['onset'])) {
-                $formatted .= "Onset: {$assessmentData['presenting_problem']['onset']}\n";
-            }
-            if (!empty($assessmentData['presenting_problem']['current_stressors'])) {
-                $formatted .= "Current Stressors: {$assessmentData['presenting_problem']['current_stressors']}\n";
-            }
-            $formatted .= "\n";
-        }
-
-        // Mental Status Exam Summary
-        $formatted .= "MENTAL STATUS EXAMINATION:\n";
-        $mse = $assessmentData['mental_status_exam'] ?? [];
-        
-        if (!empty($mse['mood_affect']['mood'])) {
-            $formatted .= "Mood: {$mse['mood_affect']['mood']}\n";
-        }
-        if (!empty($mse['cognitive_function']['concentration'])) {
-            $formatted .= "Concentration: {$mse['cognitive_function']['concentration']}\n";
-        }
-        if (!empty($mse['insight_judgment']['insight'])) {
-            $formatted .= "Insight: {$mse['insight_judgment']['insight']}\n";
-        }
-        $formatted .= "\n";
-
-        // Risk Assessment
-        $risk = $assessmentData['risk_assessment'] ?? [];
-        if (!empty($risk['suicide_risk']['current_ideation']) || !empty($risk['violence_risk']['current_ideation'])) {
-            $formatted .= "RISK ASSESSMENT:\n";
-            if (!empty($risk['suicide_risk']['current_ideation'])) {
-                $formatted .= "Suicide Risk: {$risk['suicide_risk']['current_ideation']}\n";
-            }
-            if (!empty($risk['violence_risk']['current_ideation'])) {
-                $formatted .= "Violence Risk: {$risk['violence_risk']['current_ideation']}\n";
-            }
-            $formatted .= "\n";
-        }
-
-        // Diagnostic Impressions
-        if (!empty($assessmentData['diagnostic_impressions']['primary_diagnosis'])) {
-            $formatted .= "DIAGNOSTIC IMPRESSIONS:\n";
-            $formatted .= "Primary: {$assessmentData['diagnostic_impressions']['primary_diagnosis']}\n";
-            if (!empty($assessmentData['diagnostic_impressions']['secondary_diagnoses'])) {
-                $formatted .= "Secondary: {$assessmentData['diagnostic_impressions']['secondary_diagnoses']}\n";
-            }
-            $formatted .= "\n";
-        }
-
-        // Functional Assessment
-        $functional = $assessmentData['functional_assessment'] ?? [];
-        if (!empty($functional['work_functioning']) || !empty($functional['social_functioning'])) {
-            $formatted .= "FUNCTIONAL ASSESSMENT:\n";
-            if (!empty($functional['work_functioning'])) {
-                $formatted .= "Work Functioning: {$functional['work_functioning']}\n";
-            }
-            if (!empty($functional['social_functioning'])) {
-                $formatted .= "Social Functioning: {$functional['social_functioning']}\n";
-            }
-            $formatted .= "\n";
-        }
-
-        // Treatment History
-        if (!empty($assessmentData['treatment_history']['previous_therapy'])) {
-            $formatted .= "TREATMENT HISTORY:\n";
-            $formatted .= "Previous Therapy: {$assessmentData['treatment_history']['previous_therapy']}\n";
-            if (!empty($assessmentData['treatment_history']['treatment_response'])) {
-                $formatted .= "Treatment Response: {$assessmentData['treatment_history']['treatment_response']}\n";
-            }
-            $formatted .= "\n";
-        }
-
-        // Strengths and Goals
-        if (!empty($assessmentData['strengths_resources']['treatment_goals'])) {
-            $formatted .= "TREATMENT GOALS:\n";
-            $formatted .= $assessmentData['strengths_resources']['treatment_goals'] . "\n\n";
-        }
-
         return $formatted;
+    }
+
+    private function formatAssessmentFields(array $data, string $prefix = ''): string
+    {
+        $text = '';
+        foreach ($data as $key => $value) {
+            $label = is_int($key) ? 'Item ' . ($key + 1) : ucwords(str_replace('_', ' ', $key));
+            $path = $prefix === '' ? $label : $prefix . ' / ' . $label;
+            if (is_array($value)) {
+                $text .= $this->formatAssessmentFields($value, $path);
+            } elseif ($value !== null && $value !== '') {
+                $display = is_bool($value) ? ($value ? 'Yes' : 'No') : (string)$value;
+                $text .= $path . ': ' . $display . "\n";
+            }
+        }
+        return $text;
     }
 
     /**

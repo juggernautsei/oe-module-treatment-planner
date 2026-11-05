@@ -75,7 +75,8 @@ class TreatmentService
         int $encounterId,
         string $observations,
         array $options = [],
-        int $providerId = 0
+        int $providerId = 0,
+        string $requestKey = ''
     ): array {
         AccessService::assertPatient($patientId, true, $encounterId);
         if ($encounterId <= 0) {
@@ -85,32 +86,37 @@ class TreatmentService
             throw new Exception('Clinical observations must be 20000 characters or fewer.');
         }
         SchemaService::assertReady();
-        // Get comprehensive assessment data for the AI prompt
-        $assessmentData = $this->assessmentService->getComprehensiveAssessmentData($patientId, $encounterId);
-        
-        // Generate treatment plan using OpenAI
-        $planData = $this->openAIService->generateTreatmentPlan(
-            $assessmentData,
-            $observations,
-            $options,
-            $providerId
-        );
-        
-        // Store the treatment plan in the database
-        $planId = $this->storeTreatmentPlan(
-            $patientId,
-            $encounterId,
-            $planData['content'],
-            $planData['sections'],
-            $providerId
-        );
-        
-        // Add the plan ID to the data
-        $planData['id'] = $planId;
-        
-        return $planData;
+        $requests = new GenerationRequestService();
+        $existingId = $requests->begin($requestKey, $patientId, $encounterId, $providerId, $observations);
+        if ($existingId !== null) {
+            $existing = $this->getTreatmentPlan($existingId);
+            if (!$existing) { throw new Exception('The previously generated plan is unavailable. Contact an administrator.'); }
+            return $existing;
+        }
+        try {
+            $assessmentData = $this->assessmentService->getComprehensiveAssessmentData($patientId, $encounterId);
+            $planData = $this->openAIService->generateTreatmentPlan($assessmentData, $observations, $options, $providerId);
+            QueryUtils::sqlStatementThrowException('START TRANSACTION');
+            try {
+                $planId = $this->storeTreatmentPlan($patientId, $encounterId, $planData['content'], $planData['sections'], $providerId);
+                $requests->complete($requestKey, $planId);
+                QueryUtils::sqlStatementThrowException('COMMIT');
+            } catch (\Throwable $e) {
+                QueryUtils::sqlStatementThrowException('ROLLBACK');
+                throw $e;
+            }
+            $planData['id'] = $planId;
+            return $planData;
+        } catch (\Throwable $e) {
+            // A timeout or worker failure may already have incurred a charge.
+            // Keep the request consumed rather than silently repeating the call.
+            try { $requests->fail($requestKey); } catch (\Throwable $trackingError) {
+                error_log('Unable to mark a generation request failed; it remains consumed.');
+            }
+            throw $e;
+        }
     }
-    
+
     /**
      * Store a treatment plan in the database
      * 

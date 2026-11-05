@@ -77,6 +77,7 @@ class TreatmentController
 
         $error = '';
         $plan = null;
+        $observations = is_string($_POST['observations'] ?? '') ? ($_POST['observations'] ?? '') : '';
 
         try {
             \OpenEMR\Modules\TreatmentPlanner\Services\AccessService::assertPatient((int)$pid, true, (int)$encounterId);
@@ -86,12 +87,11 @@ class TreatmentController
             }
 
             // Process form submission
-            if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_observations'])) {
+            if ($error === '' && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_observations'])) {
                 // Verify CSRF
                 if (!CsrfUtils::verifyCsrfToken(($_POST['csrf_token_form'] ?? ''), 'treatment-planner')) {
                     $error = xl('Authentication Error');
                 } else {
-                    $observations = $_POST['observations'] ?? '';
                     $providerId = $_SESSION['authUserID'] ?? 0;
 
                     try {
@@ -101,16 +101,16 @@ class TreatmentController
                             (int)$encounterId,
                             $observations,
                             [],
-                            $providerId
+                            $providerId,
+                            is_string($_POST['request_key'] ?? null) ? $_POST['request_key'] : ''
                         );
                         
-                        // Log successful generation
-                        error_log("Treatment plan generated successfully for PID: $pid, Encounter: $encounterId");
-                        
+                        // Redirect to a GET after success. Refreshing cannot resubmit the form.
+                        header('Location: ' . $GLOBALS['webroot'] . '/interface/modules/custom_modules/oe-module-treatment-planner/public/index.php/treatment/view?id=' . (int)$plan['id'], true, 303);
+                        return;
                     } catch (Exception $e) {
                         // Log the error
                         error_log("Treatment plan generation failed: " . $e->getMessage());
-                        error_log("Stack trace: " . $e->getTraceAsString());
                         
                         // Set error message for user
                         $error = xl('Failed to generate treatment plan: ') . $e->getMessage();
@@ -126,6 +126,8 @@ class TreatmentController
                 'formid' => $formId,
                 'error' => $error,
                 'plan' => $plan,
+                'observations' => $observations,
+                'request_key' => \OpenEMR\Modules\TreatmentPlanner\Services\GenerationRequestService::newKey(),
                 'webroot' => $GLOBALS['webroot'],
                 'module_name' => 'oe-module-treatment-planner'
             ]);

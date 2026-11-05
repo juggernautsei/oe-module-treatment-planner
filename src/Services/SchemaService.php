@@ -36,10 +36,10 @@ class SchemaService
     {
         $row = sqlQuery("SELECT COUNT(*) AS table_count FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()
             AND TABLE_NAME IN ('module_treatment_planner_config', 'module_treatment_planner_plans',
-            'module_treatment_planner_templates', 'module_treatment_planner_usage', 'module_treatment_planner_revisions')");
+            'module_treatment_planner_templates', 'module_treatment_planner_usage', 'module_treatment_planner_revisions', 'module_treatment_planner_requests')");
         $column = sqlQuery("SELECT IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE()
             AND TABLE_NAME = 'module_treatment_planner_usage' AND COLUMN_NAME = 'estimated_cost'");
-        if ((int)($row['table_count'] ?? 0) !== 5 || ($column['IS_NULLABLE'] ?? '') !== 'YES') {
+        if ((int)($row['table_count'] ?? 0) !== 6 || ($column['IS_NULLABLE'] ?? '') !== 'YES') {
             throw new RuntimeException('Treatment Planner database upgrade required. Ask a module administrator to run Upgrade or re-enable the module.');
         }
     }

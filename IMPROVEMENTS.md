@@ -43,3 +43,8 @@ The zero values above are placeholders, not actual model prices. Leave the model
 Clinical output always needs clinician review. Keyword routing is not a clinical risk assessment. History cannot reconstruct content overwritten before tracking was installed. Comparison is read-only and does not restore or alter finalized records. PDF output uses the browser print dialog.
 
 Automated tests use synthetic data and isolated OpenEMR adapters. Before clinical deployment, test against the actual OpenEMR version, site permissions, browser workflows, database, and external AI configuration. Do not infer full production validation from a passing automated suite.
+
+
+## Version 1.0.3 follow-up
+
+See [the 1.0.3 edit log](EDITS-1.0.3.md). Assessment prompts retain the previously omitted medication, allergy, and detailed risk/history fields. Default-template initialization is administrator-only, CSRF-protected, transactional, and makes no AI calls. Generation uses a persistent request ledger and a 303 redirect to prevent repeated submissions of the same form from creating another plan or API call. Setup links and temperature validation are corrected. A request-ledger table brings the module total to six; run the automatic upgrade before use.

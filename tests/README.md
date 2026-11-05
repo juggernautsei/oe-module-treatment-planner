@@ -3,10 +3,11 @@
 ## Isolated checks
 
 ```sh
-php tests/followup.php
+php tests/review3.php
+php tests/create-flow.php
 ```
 
-This also runs `regression.php`. It needs no OpenEMR instance, database, API key, or vendor dependencies. PHP 7.4 and later are exercised by CI.
+The review suite also runs `regression.php` and `followup.php`. It needs no OpenEMR instance, database, API key, or vendor dependencies. PHP 7.4 and later are exercised by CI.
 
 ## Template rendering
 
@@ -38,10 +39,13 @@ GitHub Actions runs isolated checks on PHP 7.4/8.3/8.5 and database/template int
 
 Automated adapters cannot establish complete OpenEMR/browser compatibility. On a backed-up staging installation:
 
-1. Upgrade or disable/re-enable the module and verify the five module tables, nullable cost column, and unchanged existing records. Repeat the lifecycle action to confirm repeatability. Verify Weno settings, if installed, remain unchanged.
+1. Upgrade or disable/re-enable the module and verify the six module tables, nullable cost column, and unchanged existing records. Repeat the lifecycle action to confirm repeatability. Verify Weno settings, if installed, remain unchanged.
 2. Check view-only, writer, and signer roles, selected-chart restrictions, and restricted encounter sensitivity.
 3. Generate a plan from an assessment containing coded list fields and verify readable labels reach the prompt. Confirm unmapped fields are explicit.
 4. Exercise draft → review → approved → finalized; attempt edits after finalization and stale saves from two tabs.
 5. Open History from a finalized plan, compare different versions, page through more than 25 revisions, and verify other patients' versions cannot be read.
 6. Test AI revision, API errors/timeouts, unknown cost rates, configured rates, and browser Print/Save as PDF.
 7. Confirm all generated or revised clinical text is reviewed by a clinician before approval.
+
+
+Version 1.0.3 adds tests for complete assessment-to-prompt propagation, secure initialization, temperature validation, request-key matching/ownership, replay without another AI call, concurrent claims, uncertain failures, plan/request completion rollback, initializer rollback, preserved form notes, and POST-to-GET redirects. The database suite uses a second MySQL connection and test-only failure triggers to exercise races and rollback. In staging, also test refreshing a successful result, submitting the same form twice, and deliberately retrying from a new form after inspecting the plan list.

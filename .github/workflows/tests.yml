@@ -16,7 +16,8 @@ jobs:
           extensions: mbstring
           coverage: none
       - run: find . -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l
-      - run: php tests/followup.php
+      - run: php tests/review3.php
+      - run: php tests/create-flow.php
   integration:
     runs-on: ubuntu-latest
     services:
