@@ -58,3 +58,7 @@ See [the 1.0.4 edit log](EDITS-1.0.4.md). Generated output is preserved during u
 ## Version 1.0.5 follow-up
 
 See [the 1.0.5 edit log](EDITS-1.0.5.md). Unexpected errors use sanitized diagnostics and reference IDs; explicit validation messages remain actionable. New plans retain original model, prompt version, UTC generation time and token metadata without copying prompts or notes. Incomplete drafts remain savable, while approval/finalization require all six expected nonempty sections. Controller/service dependencies are injectable, with default wiring centralized for the existing router. Run the database upgrade to add the nullable provenance column; older records remain explicitly unknown.
+
+## Version 1.0.6: session and CSRF compatibility
+
+See [EDITS-1.0.6.md](EDITS-1.0.6.md). The module now reads the active core session on newer OpenEMR installations, retains the legacy session fallback, and calls the appropriate core CSRF API. The reported create/list login denial was reproduced and fixed on the local OpenEMR 8.5.0 test installation. AI and downstream plan workflows still require live validation.

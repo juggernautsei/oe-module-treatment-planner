@@ -75,11 +75,11 @@ function addTreatmentPlannerMenuItems($menu_items = [])
 function getTreatmentPlannerQuickAccess($pid = null, $encounter = null)
 {
     if (!$pid) {
-        $pid = $_SESSION['pid'] ?? null;
+        $pid = \OpenEMR\Modules\TreatmentPlanner\Services\SessionContext::get('pid', null);
     }
 
     if (!$encounter) {
-        $encounter = $_SESSION['encounter'] ?? null;
+        $encounter = \OpenEMR\Modules\TreatmentPlanner\Services\SessionContext::get('encounter', null);
     }
 
     if (!$pid || !$encounter) {
@@ -111,12 +111,12 @@ function getTreatmentPlannerQuickAccess($pid = null, $encounter = null)
  */
 function hasTreatmentPlannerAccess()
 {
-    // Check if user is logged in
-    if (!isset($_SESSION['authUser']) || empty($_SESSION['authUser'])) {
+    try {
+        \OpenEMR\Modules\TreatmentPlanner\Services\AccessService::assertModuleAccess();
+        return true;
+    } catch (\Throwable $e) {
         return false;
     }
-
-    return \OpenEMR\Common\Acl\AclMain::aclCheckCore('patients', 'med');
 }
 
 /**

@@ -18,7 +18,8 @@ use OpenEMR\Modules\TreatmentPlanner\Services\PlanStructureService;
 use OpenEMR\Modules\TreatmentPlanner\Services\ModuleServiceFactory;
 use OpenEMR\Modules\TreatmentPlanner\Exceptions\UserFacingException;
 
-use OpenEMR\Common\Csrf\CsrfUtils;
+use OpenEMR\Modules\TreatmentPlanner\Services\CsrfService;
+use OpenEMR\Modules\TreatmentPlanner\Services\SessionContext;
 use OpenEMR\Common\Twig\TwigContainer;
 use OpenEMR\Modules\TreatmentPlanner\Services\TreatmentService;
 use OpenEMR\Modules\TreatmentPlanner\Services\OpenAIService;
@@ -55,8 +56,8 @@ class TreatmentController
      */
     public function createAction(): void
     {
-        $pid = $_SERVER['REQUEST_METHOD'] === 'POST' ? ($_POST['pid'] ?? 0) : ($_GET['pid'] ?? $_SESSION['pid'] ?? 0);
-        $encounterId = $_SERVER['REQUEST_METHOD'] === 'POST' ? ($_POST['encounter'] ?? 0) : ($_GET['encounter'] ?? $_SESSION['encounter'] ?? 0);
+        $pid = $_SERVER['REQUEST_METHOD'] === 'POST' ? ($_POST['pid'] ?? 0) : ($_GET['pid'] ?? SessionContext::get('pid', 0));
+        $encounterId = $_SERVER['REQUEST_METHOD'] === 'POST' ? ($_POST['encounter'] ?? 0) : ($_GET['encounter'] ?? SessionContext::get('encounter', 0));
         $formId = $_GET['formid'] ?? 0;
 
         $error = '';
@@ -73,10 +74,10 @@ class TreatmentController
             // Process form submission
             if ($error === '' && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_observations'])) {
                 // Verify CSRF
-                if (!CsrfUtils::verifyCsrfToken(($_POST['csrf_token_form'] ?? ''), 'treatment-planner')) {
+                if (!CsrfService::verifyCsrfToken(($_POST['csrf_token_form'] ?? ''), 'treatment-planner')) {
                     $error = xl('Authentication Error');
                 } else {
-                    $providerId = $_SESSION['authUserID'] ?? 0;
+                    $providerId = SessionContext::get('authUserID', 0);
 
                     try {
                         // Generate the treatment plan
@@ -103,7 +104,7 @@ class TreatmentController
 
             // Render the create form
             echo $this->twig->getTwig()->render('treatment/create.html.twig', [
-                'csrf_token_form' => CsrfUtils::collectCsrfToken('treatment-planner'),
+                'csrf_token_form' => CsrfService::collectCsrfToken('treatment-planner'),
                 'pid' => $pid,
                 'encounter' => $encounterId,
                 'formid' => $formId,
@@ -127,7 +128,7 @@ class TreatmentController
     {
         header('Content-Type: application/json');
         try {
-            if (!CsrfUtils::verifyCsrfToken($_POST['csrf_token_form'] ?? '', 'treatment-planner')) {
+            if (!CsrfService::verifyCsrfToken($_POST['csrf_token_form'] ?? '', 'treatment-planner')) {
                 http_response_code(403);
                 throw new UserFacingException('Authentication Error');
             }
@@ -138,7 +139,7 @@ class TreatmentController
             if ($text === '' || mb_strlen($text) > 20000) {
                 throw new UserFacingException('Enter between 1 and 20000 characters.');
             }
-            echo json_encode(['content' => $this->openAIService->reviseObservations($text, (int)$_SESSION['authUserID'])]);
+            echo json_encode(['content' => $this->openAIService->reviseObservations($text, (int)SessionContext::get('authUserID'))]);
         } catch (\Throwable $e) {
             if (http_response_code() !== 403) { http_response_code(400); }
             echo json_encode(['error' => ErrorService::publicMessage($e, 'treatment_plan')]);
@@ -170,11 +171,11 @@ class TreatmentController
                 $saved = false;
                 try {
                     $token = is_string($_POST['csrf_token_form'] ?? null) ? $_POST['csrf_token_form'] : '';
-                    if (!CsrfUtils::verifyCsrfToken($token, 'treatment-planner')) { throw new UserFacingException('Authentication Error'); }
+                    if (!CsrfService::verifyCsrfToken($token, 'treatment-planner')) { throw new UserFacingException('Authentication Error'); }
                     $status = isset($_POST['submit_finalize']) ? TreatmentService::STATUS_FINALIZED : $selectedStatus;
                     if (!$this->treatmentService->updateTreatmentPlan($planId, [
                         'content' => $editorContent, 'status' => $status, 'expected_version' => $formVersion
-                    ], (int)($_SESSION['authUserID'] ?? 0))) { throw new UserFacingException('Unable to save treatment plan'); }
+                    ], (int)(SessionContext::get('authUserID', 0)))) { throw new UserFacingException('Unable to save treatment plan'); }
                     $saved = true;
                     $refreshedPlan = $this->treatmentService->getTreatmentPlan($planId);
                     if (!$refreshedPlan) { throw new UserFacingException('Saved plan is temporarily unavailable.'); }
@@ -190,7 +191,7 @@ class TreatmentController
             $readOnly = $plan['status'] === TreatmentService::STATUS_FINALIZED;
             if ($readOnly && !$submitted) { throw new UserFacingException('Finalized plans are read-only.'); }
             echo $this->twig->getTwig()->render('treatment/edit.html.twig', [
-                'csrf_token_form' => CsrfUtils::collectCsrfToken('treatment-planner'),
+                'csrf_token_form' => CsrfService::collectCsrfToken('treatment-planner'),
                 'plan' => $plan, 'message' => $message, 'error' => $error,
                 'missing_sections' => ($this->structureService ?? ModuleServiceFactory::structure())->missingSections($editorContent),
                 'editor_content' => $editorContent, 'form_version' => $formVersion,
@@ -225,7 +226,7 @@ class TreatmentController
             // Render the view template
             echo $this->twig->getTwig()->render('treatment/view.html.twig', [
                 'missing_sections' => $plan ? ($this->structureService ?? ModuleServiceFactory::structure())->missingSections($plan['content']) : [],
-                'csrf_token_form' => CsrfUtils::collectCsrfToken('treatment-planner'),
+                'csrf_token_form' => CsrfService::collectCsrfToken('treatment-planner'),
                 'plan' => $plan,
                 'error' => $error,
                 'statuses' => [
@@ -272,8 +273,8 @@ class TreatmentController
      */
     public function listAction(): void
     {
-        $pid = $_GET['pid'] ?? $_SESSION['pid'] ?? 0;
-        $encounterId = $_GET['encounter'] ?? $_SESSION['encounter'] ?? 0;
+        $pid = $_GET['pid'] ?? SessionContext::get('pid', 0);
+        $encounterId = $_GET['encounter'] ?? SessionContext::get('encounter', 0);
         $error = '';
 
         // Validate that we have a valid patient ID
@@ -324,7 +325,7 @@ class TreatmentController
 
         try {
             // Verify CSRF
-            if (!CsrfUtils::verifyCsrfToken(($_POST['csrf_token_form'] ?? ''), 'treatment-planner')) {
+            if (!CsrfService::verifyCsrfToken(($_POST['csrf_token_form'] ?? ''), 'treatment-planner')) {
                 $response['message'] = xl('Authentication Error');
                 echo json_encode($response);
                 return;
@@ -332,7 +333,7 @@ class TreatmentController
 
             $planId = (int)($_POST['plan_id'] ?? 0);
             $status = $_POST['status'] ?? '';
-            $providerId = $_SESSION['authUserID'] ?? 0;
+            $providerId = SessionContext::get('authUserID', 0);
 
             if (empty($planId) || empty($status)) {
                 $response['message'] = xl('Missing required parameters');
@@ -364,14 +365,14 @@ class TreatmentController
     {
         try {
             // Verify CSRF
-            if (!CsrfUtils::verifyCsrfToken(($_POST['csrf_token_form'] ?? ''), 'treatment-planner')) {
+            if (!CsrfService::verifyCsrfToken(($_POST['csrf_token_form'] ?? ''), 'treatment-planner')) {
                 $error = xl('Authentication Error');
                 header('Location: ' . $GLOBALS['webroot'] . '/interface/modules/custom_modules/oe-module-treatment-planner/public/index.php/dashboard?error=' . urlencode($error));
                 return;
             }
 
             $planId = (int)($_POST['plan_id'] ?? 0);
-            $providerId = $_SESSION['authUserID'] ?? 0;
+            $providerId = SessionContext::get('authUserID', 0);
 
             if (!$planId) {
                 $error = xl('Invalid treatment plan ID');
@@ -391,9 +392,9 @@ class TreatmentController
             $updateData = ['status' => 'finalized', 'expected_version' => (int)($_POST['expected_version'] ?? 0)];
             
             // Ensure we have encounter and patient data from session
-            if (isset($_SESSION['encounter']) && isset($_SESSION['pid'])) {
-                $updateData['encounter_id'] = $_SESSION['encounter'];
-                $updateData['patient_id'] = $_SESSION['pid'];
+            if (SessionContext::get('encounter') !== null && SessionContext::get('pid') !== null) {
+                $updateData['encounter_id'] = SessionContext::get('encounter');
+                $updateData['patient_id'] = SessionContext::get('pid');
             }
 
             if ($this->treatmentService->updateTreatmentPlan($planId, $updateData, $providerId)) {

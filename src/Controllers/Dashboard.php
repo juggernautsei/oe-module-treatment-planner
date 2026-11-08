@@ -12,6 +12,7 @@
 
 namespace OpenEMR\Modules\TreatmentPlanner\Controllers;
 
+use OpenEMR\Modules\TreatmentPlanner\Services\SessionContext;
 use OpenEMR\Common\Twig\TwigContainer;
 use Exception;
 use OpenEMR\Modules\TreatmentPlanner\Services\AccessService;
@@ -45,7 +46,7 @@ class Dashboard
             'title' => 'AI Treatment Planner Dashboard',
             'stats' => $stats,
             'recent_plans' => $recent_plans,
-            'encounter' => $_SESSION['encounter'] ?? '',
+            'encounter' => SessionContext::get('encounter', ''),
             'webroot' => $GLOBALS['webroot']
         ]);
     }
@@ -59,7 +60,7 @@ class Dashboard
     {
         try {
             $stats = ['total_plans' => 0, 'active_plans' => 0, 'ai_generated' => 0, 'recent_plans' => 0];
-            $pid = (int)($_SESSION['pid'] ?? 0);
+            $pid = (int)(SessionContext::get('pid', 0));
             if ($pid <= 0) { return $stats; }
             AccessService::assertPatient($pid);
             $result = sqlStatement('SELECT encounter_id, status, date_created FROM module_treatment_planner_plans WHERE patient_id = ?', [$pid]);
@@ -93,7 +94,7 @@ class Dashboard
     {
         try {
             // Get current patient ID from session
-            $pid = $_SESSION['pid'] ?? 0;
+            $pid = SessionContext::get('pid', 0);
             
             // If no patient is selected, return empty array
             if (empty($pid)) {

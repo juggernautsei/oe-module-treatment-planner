@@ -26,9 +26,13 @@ require_once dirname(__DIR__, 4) . "/globals.php";
 // Include menu integration functions
 require_once dirname(__DIR__) . "/menu_integration.php";
 
-// Check authentication and permissions
-if (!hasTreatmentPlannerAccess()) {
-    echo "<div class='alert alert-danger'>" . xlt('Access denied. Please log in to access the Treatment Planner.') . "</div>";
+// Distinguish an expired login from an authenticated user without medical access.
+try {
+    \OpenEMR\Modules\TreatmentPlanner\Services\AccessService::assertModuleAccess();
+} catch (\Throwable $e) {
+    $status = $e instanceof \OpenEMR\Modules\TreatmentPlanner\Exceptions\UserFacingException ? $e->getCode() : 503;
+    http_response_code(in_array($status, [401, 403], true) ? $status : 503);
+    echo '<div class="alert alert-danger">' . text(\OpenEMR\Modules\TreatmentPlanner\Services\ErrorService::publicMessage($e, 'module_access')) . '</div>';
     exit;
 }
 

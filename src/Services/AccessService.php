@@ -8,10 +8,21 @@ use RuntimeException;
 /** Fail closed unless the caller has medical-record access in the selected chart. */
 class AccessService
 {
+    public static function assertModuleAccess(): void
+    {
+        if (!SessionContext::isAuthenticated()) {
+            throw new UserFacingException('Access denied. Please log in to access the Treatment Planner.', 401);
+        }
+        if (!AclMain::aclCheckCore('patients', 'med')) {
+            throw new UserFacingException('Access denied. Medical-record permission is required.', 403);
+        }
+    }
+
     public static function assertPatient(int $patientId, bool $write = false, int $encounterId = 0): void
     {
-        if (empty($_SESSION['authUser']) || $patientId <= 0
-            || $patientId !== (int)($_SESSION['pid'] ?? 0)
+        self::assertModuleAccess();
+        if ($patientId <= 0
+            || $patientId !== (int)(SessionContext::get('pid', 0))
             || !AclMain::aclCheckCore('patients', 'med', '', $write ? 'write' : '')) {
             throw new UserFacingException('Access denied. Select the patient chart and check your medical-record permissions.');
         }

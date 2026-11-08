@@ -234,3 +234,7 @@ See [the edit log](../EDITS-1.0.4.md) for usage-failure recovery, preserved unsa
 ## Latest corrections: version 1.0.5
 
 Read [the edit log](../EDITS-1.0.5.md) for safe errors, stored generation details, structural checks before approval, and injectable service wiring. The [consolidated overview](../IMPROVEMENTS.md) includes these changes. Upgrade the database before use; existing records retain unknown generation metadata.
+
+## Latest corrections: version 1.0.6
+
+Read [the edit log](../EDITS-1.0.6.md) for the reproduced OpenEMR 8.5.0 login failure, shared session handling, core CSRF compatibility and browser verification limits. No database migration is required beyond version 1.0.5.

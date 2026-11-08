@@ -178,7 +178,7 @@ class TreatmentService
         // Required part of the surrounding transaction: never report a detached plan as success.
         try {
             $formId = addForm($encounterId, 'Treatment Plan', $planId, 'treatment_planner', $patientId,
-                '1', 'NOW()', $_SESSION['authUser'] ?? '', $_SESSION['authProvider'] ?? '');
+                '1', 'NOW()', SessionContext::get('authUser', ''), SessionContext::get('authProvider', ''));
             if (!$formId) { throw new UserFacingException('Encounter form registration returned no identifier.'); }
         } catch (\Throwable $e) {
             throw new UserFacingException('Unable to link the treatment plan to the encounter. The plan was not saved; check the server log before starting another generation.', 0, $e);
@@ -210,7 +210,7 @@ class TreatmentService
                 throw new UserFacingException('Treatment plan not found');
             }
             AccessService::assertPatient((int)$current['patient_id'], true, (int)$current['encounter_id']);
-            if ($providerId !== (int)($_SESSION['authUserID'] ?? 0) || $providerId <= 0) {
+            if ($providerId !== (int)(SessionContext::get('authUserID', 0)) || $providerId <= 0) {
                 throw new UserFacingException('Invalid author');
             }
             if ((int)($data['expected_version'] ?? 0) !== (int)$current['version']) {

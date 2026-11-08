@@ -15,7 +15,7 @@ $module_name = 'oe-module-treatment-planner';
 require_once dirname(__FILE__, 4) . '/globals.php';
 
 use OpenEMR\Core\Header;
-use OpenEMR\Common\Csrf\CsrfUtils;
+use OpenEMR\Modules\TreatmentPlanner\Services\CsrfService;
 use OpenEMR\Modules\TreatmentPlanner\Services\ConfigService;
 
 if (!\OpenEMR\Common\Acl\AclMain::aclCheckCore('admin', 'manage_modules')) {
@@ -36,7 +36,7 @@ $testConnectionResult = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $token = is_string($_POST['csrf_token_form'] ?? null) ? $_POST['csrf_token_form'] : '';
-    if (!CsrfUtils::verifyCsrfToken($token)) {
+    if (!CsrfService::verifyCsrfToken($token)) {
         $errorMessage = xl('Authentication Error');
     } else {
         try {
@@ -103,7 +103,7 @@ $apiKeyConfigured = $configService->isApiKeyConfigured();
                         <?php endif; ?>
                         
                         <form method="post" action="" id="config-form">
-                            <input type="hidden" name="csrf_token_form" value="<?php echo attr(CsrfUtils::collectCsrfToken()); ?>">
+                            <input type="hidden" name="csrf_token_form" value="<?php echo attr(CsrfService::collectCsrfToken()); ?>">
                             
                             <div class="form-group">
                                 <label for="api-key"><?php echo xlt('OpenAI API Key'); ?></label>

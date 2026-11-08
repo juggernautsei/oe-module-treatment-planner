@@ -3,7 +3,7 @@ namespace OpenEMR\Modules\TreatmentPlanner\Services;
 use OpenEMR\Modules\TreatmentPlanner\Exceptions\UserFacingException;
 
 use OpenEMR\Common\Acl\AclMain;
-use OpenEMR\Common\Csrf\CsrfUtils;
+use OpenEMR\Modules\TreatmentPlanner\Services\CsrfService;
 use OpenEMR\Common\Database\QueryUtils;
 use RuntimeException;
 
@@ -11,10 +11,10 @@ class TemplateInitializationService
 {
     public function initialize(string $method, string $csrf, TemplateService $templates): int
     {
-        if (empty($_SESSION['authUser']) || (int)($_SESSION['authUserID'] ?? 0) <= 0 || !AclMain::aclCheckCore('admin', 'manage_modules')) {
+        if (!SessionContext::get('authUser') || (int)(SessionContext::get('authUserID', 0)) <= 0 || !AclMain::aclCheckCore('admin', 'manage_modules')) {
             throw new UserFacingException('Administrator permission required.');
         }
-        if ($method !== 'POST' || !CsrfUtils::verifyCsrfToken($csrf, 'treatment-planner-init')) {
+        if ($method !== 'POST' || !CsrfService::verifyCsrfToken($csrf, 'treatment-planner-init')) {
             throw new UserFacingException('A valid POST and CSRF token are required.');
         }
         SchemaService::assertReady();
@@ -24,7 +24,7 @@ class TemplateInitializationService
             if (count($templates->getAllTemplates()) > 0) { return 0; }
             QueryUtils::sqlStatementThrowException('START TRANSACTION');
             try {
-                $ids = $templates->createDefaultTemplates((int)($_SESSION['authUserID'] ?? 0));
+                $ids = $templates->createDefaultTemplates((int)(SessionContext::get('authUserID', 0)));
                 if (count($ids) !== 3) { throw new UserFacingException('Default template initialization was incomplete.'); }
                 QueryUtils::sqlStatementThrowException('COMMIT');
                 return count($ids);

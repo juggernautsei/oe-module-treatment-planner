@@ -16,7 +16,7 @@ class GenerationRequestService
             throw new UserFacingException('Invalid generation request. Reload the create form.');
         }
         AccessService::assertPatient($patientId, true, $encounterId);
-        if ($providerId <= 0 || $providerId !== (int)($_SESSION['authUserID'] ?? 0)) {
+        if ($providerId <= 0 || $providerId !== (int)(SessionContext::get('authUserID', 0))) {
             throw new UserFacingException('Invalid generation author.');
         }
         $lockName = 'tp_gen:' . sha1($key);
