@@ -17,7 +17,7 @@ class SourceReviewService
         // These are code-shaped strings, not a diagnosis/coding validation algorithm.
         preg_match_all('/\b(?:[A-Z][0-9]{2}(?:\.[A-Z0-9]{1,4})?|[0-9]{3}\.[0-9]{1,3})\b/', $content, $codes);
         $sourceText = implode("\n", array_column($snapshot['sources'] ?? [], 'value'));
-        $unmatched = array_filter(array_unique($codes[0]), function ($code) use ($sourceText) { return strpos($sourceText, $code) === false; });
+        $unmatched = array_filter(array_unique($codes[0]), function ($code) use ($sourceText) { return !preg_match('/(?<![A-Za-z0-9.])' . preg_quote($code, '/') . '(?![A-Za-z0-9.])/', $sourceText); });
         if ($unmatched) { $warnings[] = 'Code-like values not found verbatim in recorded inputs: ' . implode(', ', $unmatched) . '. Verify them against the chart and coding references.'; }
         $warnings[] = 'Source matches are text-level checks, not proof of clinical correctness. Suggestions and diagnostic claims still require clinician verification.';
         return $warnings;

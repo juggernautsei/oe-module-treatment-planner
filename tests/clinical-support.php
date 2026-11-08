@@ -40,5 +40,8 @@ $review=\OpenEMR\Modules\TreatmentPlanner\Services\SourceReviewService::warnings
 verifyClinical(strpos(implode(' ',$review),'313.22')!==false && strpos(implode(' ',$review),'[S999]')!==false,'Unknown citations and unmatched code-like values must be flagged');
 $review=\OpenEMR\Modules\TreatmentPlanner\Services\SourceReviewService::warnings('Clinical statement without references',['sources'=>[['reference'=>'S1','value'=>'Concern']]]);
 verifyClinical(strpos($review[0],'No source references')!==false,'Missing source citations must remain visible');
+$review=\OpenEMR\Modules\TreatmentPlanner\Services\SourceReviewService::warnings('Code F41.1 [S1]',['sources'=>[['reference'=>'S1','value'=>'F41.10']]]);
+verifyClinical(strpos(implode(' ',$review),'F41.1')!==false,'A longer code must not be accepted as an exact source-code match');
+verifyClinical(!AssessmentEvidenceService::isDocumented('Not documented'),'Undocumented input must count as a gap');
 echo "$count clinical support checks passed\n";
 }

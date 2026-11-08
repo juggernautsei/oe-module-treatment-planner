@@ -12,7 +12,7 @@ class AssessmentEvidenceService
 
     public static function isDocumented(string $value): bool
     {
-        return trim($value) !== '' && !preg_match('/\b(not assessed|not specified|unknown|unrecognized option|requires clinician|not established)\b/i', $value);
+        return trim($value) !== '' && !preg_match('/\b(not assessed|not specified|not documented|not recorded|not available|uncertain|unknown|unrecognized option|requires clinician|not established)\b/i', $value);
     }
 
     public static function snapshot(array $fields, array $source): array
