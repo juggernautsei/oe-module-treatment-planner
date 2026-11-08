@@ -23,6 +23,7 @@ jobs:
       - run: php tests/session.php native
       - run: php tests/session.php wrapper
       - run: php tests/api-errors.php
+      - run: php tests/print-content.php
   integration:
     runs-on: ubuntu-latest
     services:

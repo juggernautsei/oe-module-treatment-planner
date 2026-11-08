@@ -242,3 +242,7 @@ Read [the edit log](../EDITS-1.0.6.md) for the reproduced OpenEMR 8.5.0 login fa
 ## Latest corrections: version 1.0.7
 
 Read [the edit log](../EDITS-1.0.7.md) for the model-access diagnosis, successful synthetic generation, safe API errors and removal of the missing CKEditor 4 dependency. No new database migration is required.
+
+## Latest corrections: version 1.0.8
+
+See [the edit log](../EDITS-1.0.8.md) for structured plan display and print styling. The original plan text is preserved and no database migration is required.

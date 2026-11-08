@@ -226,6 +226,7 @@ class TreatmentController
             // Render the view template
             echo $this->twig->getTwig()->render('treatment/view.html.twig', [
                 'missing_sections' => $plan ? ($this->structureService ?? ModuleServiceFactory::structure())->missingSections($plan['content']) : [],
+                'plan_content_html' => $plan ? (new \OpenEMR\Modules\TreatmentPlanner\Services\PlanContentRenderer())->render($plan['content']) : '',
                 'csrf_token_form' => CsrfService::collectCsrfToken('treatment-planner'),
                 'plan' => $plan,
                 'error' => $error,

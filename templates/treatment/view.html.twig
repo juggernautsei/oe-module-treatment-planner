@@ -2,7 +2,32 @@
 
 {% block treatment_content %}
 <style>
+.treatment-content { white-space: normal; line-height: 1.65; overflow-wrap: anywhere; }
+.treatment-content h2, .treatment-content h3, .treatment-content h4 { line-height: 1.3; margin: 1.4em 0 .65em; font-weight: 700; }
+.treatment-content h2 { font-size: 1.35rem; }
+.treatment-content h3 { font-size: 1.15rem; }
+.treatment-content h4 { font-size: 1rem; }
+.treatment-content p { margin: 0 0 .8em; }
+.treatment-content ul, .treatment-content ol { padding-left: 1.6em; margin: .4em 0 1em; }
+.treatment-content li { margin-bottom: .3em; }
+.treatment-content hr { border: 0; border-top: 1px solid #ccc; margin: 1em 0; }
+@page { size: A4; margin: 18mm 16mm; }
 @media print {
+    html, body { background: #fff !important; color: #111 !important; font-size: 11pt; }
+    .treatment-content { font-size: 11pt; line-height: 1.5; border: 0; padding: 0; min-height: 0; }
+    body > .container-fluid { margin: 0 !important; padding: 0 !important; }
+    .treatment-content h2 { font-size: 15pt; }
+    .treatment-content h3 { font-size: 13pt; }
+    .treatment-content h4 { font-size: 11pt; }
+    .treatment-content h2, .treatment-content h3, .treatment-content h4 { break-after: avoid-page; page-break-after: avoid; }
+    .treatment-content p, .treatment-content li { orphans: 3; widows: 3; }
+    .treatment-plan-container .row, .treatment-plan-container .col-12 { display: block !important; width: 100% !important; max-width: 100% !important; }
+    .treatment-plan-container > .row { margin: 0 !important; }
+    .treatment-plan-container > .row > .col-12 { padding: 0 !important; }
+    .card { break-inside: auto; }
+    .card-header { break-after: avoid-page; }
+    .status-badge { color: #111 !important; background: #fff !important; border: 1px solid #555; padding: 3px 8px; }
+
     /* Hide action buttons and interactive elements during print */
     .no-print,
     .btn-group,
@@ -81,14 +106,14 @@
                             </div>
                         </div>
                         
-                        <details class="mb-3"><summary>{{ "Original generation details"|xlt }}</summary>
+                        <details class="mb-3 no-print"><summary>{{ "Original generation details"|xlt }}</summary>
                         {% if plan.generation_metadata|default(null) %}
                           {% set generation_labels = {'model': 'Model', 'requested_model': 'Requested model', 'prompt_version': 'Prompt version', 'generated_at': 'Generated at (UTC)', 'prompt_tokens': 'Input tokens', 'completion_tokens': 'Output tokens', 'total_tokens': 'Total tokens'} %}
                           <dl>{% for key, label in generation_labels %}{% if plan.generation_metadata[key] is defined %}<dt>{{ label|xlt }}</dt><dd>{{ plan.generation_metadata[key]|text }}</dd>{% endif %}{% endfor %}</dl>
                         {% else %}<p>{{ "Generation metadata was not recorded for this plan."|xlt }}</p>{% endif %}
                         </details>
                         <div class="treatment-content mb-4">
-                            {{ plan.content|nl2br }}
+                            {% if plan_content_html is defined %}{{ plan_content_html|raw }}{% else %}{{ plan.content|nl2br }}{% endif %}
                         </div>
                         
                         <div class="row mt-4">
