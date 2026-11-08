@@ -39,7 +39,7 @@ namespace {
 
     function sqlQuery($sql, $params = []) {
         if (strpos($sql, 'GET_LOCK') !== false) { return ['acquired' => $GLOBALS['testLockAcquired'] ?? 1]; }
-        if (strpos($sql, 'information_schema.TABLES') !== false) { return ['table_count' => $GLOBALS['testTableCount'] ?? 7]; }
+        if (strpos($sql, 'information_schema.TABLES') !== false) { return ['table_count' => $GLOBALS['testTableCount'] ?? 10]; }
         if (strpos($sql, 'generation_metadata') !== false && strpos($sql, 'information_schema.COLUMNS') !== false) { return ['metadata_count' => 1]; }
         if (strpos($sql, 'information_schema.COLUMNS') !== false) { return ['IS_NULLABLE' => 'YES']; }
         if (strpos($sql, 'FROM list_options') !== false) { return $GLOBALS['testLists'][$params[0]][$params[1]] ?? []; }
@@ -103,7 +103,7 @@ namespace {
     check(end(QueryUtils::$queries)[0] === 'ROLLBACK', 'Rejected writes must roll back');
     resetState();
     rejects(fn() => $service->updateTreatmentPlan(1, ['expected_version' => 1], 7), 'Reload');
-    rejects(fn() => $service->changeStatus(1, 'finalized', 7, 2), 'Invalid treatment');
+    rejects(fn() => $service->changeStatus(1, 'finalized', 7, 2, ['review_sources'=>'1','review_suggestions'=>'1','review_clinical'=>'1']), 'Invalid treatment');
     resetState('pending_review');
     AclMain::$denied = ['patients/sign/write'];
     rejects(fn() => $service->changeStatus(1, 'approved', 7, 2), 'signing permission');
@@ -120,7 +120,7 @@ namespace {
     check(end(QueryUtils::$queries)[0] === 'ROLLBACK' && count(QueryUtils::$queries) === 3, 'Archive failure must prevent update');
     resetState('approved');
     QueryUtils::$plan['content'] = "Diagnosis:\nExample diagnosis\nTreatment Goals:\nExample goal\nObjectives:\nExample objective\nInterventions:\nExample intervention\nTimeline:\nExample timeline\nCriteria for Success:\nExample measure";
-    check($service->changeStatus(1, 'finalized', 7, 2), 'Approved plans may finalize');
+    check($service->changeStatus(1, 'finalized', 7, 2, ['review_sources'=>'1','review_suggestions'=>'1','review_clinical'=>'1']), 'Approved plans may finalize');
     $parse = new ReflectionMethod($ai, 'parseResponse');
     if (PHP_VERSION_ID < 80100) { $parse->setAccessible(true); }
     rejects(fn() => $parse->invoke($ai, ['choices' => [['message' => ['content' => 'Partial'], 'finish_reason' => 'length']]]), 'incomplete');

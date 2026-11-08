@@ -38,7 +38,9 @@
             "@php tests/session.php native",
             "@php tests/session.php wrapper",
             "@php tests/api-errors.php",
-            "@php tests/print-content.php"
+            "@php tests/print-content.php",
+            "@php tests/clinical-support.php",
+            "@php tests/clinical-permissions.php"
         ],
         "test:database": "@php tests/database.php"
     }

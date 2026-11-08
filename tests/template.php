@@ -1,5 +1,5 @@
 <?php
-require dirname(__DIR__) . '/vendor/autoload.php';
+require getenv('TP_TEST_AUTOLOAD') ?: dirname(__DIR__) . '/vendor/autoload.php';
 $twig = new Twig\Environment(new Twig\Loader\FilesystemLoader(dirname(__DIR__) . '/templates'), ['autoescape' => 'html', 'strict_variables' => true]);
 foreach (['xlt', 'text', 'attr', 'js_escape'] as $name) { $twig->addFilter(new Twig\TwigFilter($name, fn($text) => $text)); }
 $twig->addFilter(new Twig\TwigFilter('dateToTime', fn($text) => strtotime($text)));
@@ -32,4 +32,16 @@ if (strpos($view, 'Expected sections not detected') === false || strpos($view, '
 $viewContext['plan']['generation_metadata'] = null;
 $legacyView = $twig->render('treatment/view.html.twig', $viewContext);
 if (strpos($legacyView, 'Generation metadata was not recorded for this plan.') === false) { throw new RuntimeException('Legacy missing metadata must be explicit'); }
-echo "13 template integration checks passed\n";
+require dirname(__DIR__) . '/src/Services/PlanContentRenderer.php';
+$viewContext['plan_content_html'] = (new \OpenEMR\Modules\TreatmentPlanner\Services\PlanContentRenderer())->render("### Plan\n**Source claim** <script>bad</script>");
+$viewContext['assessment_evidence'] = ['captured_at'=>'2026-11-08T00:00:00Z','source'=>['form'=>'LBF_TEST','encounter'=>20,'date'=>'2026-11-08'],
+ 'missing'=>['allergies'=>'Allergies'],'sources'=>[['reference'=>'S1','label'=>'Presenting concern','source_field'=>'reason_visit','value'=>'<script>source data</script>']], 'observations'=>'<script>notes</script>'];
+$viewContext['clinical_reviews'] = [['date_created'=>'2026-11-08','fname'=>'Test','lname'=>'Reviewer','status'=>'approved','plan_version'=>4,'note'=>'<script>review note</script>']];
+$supportView=$twig->render('treatment/view.html.twig',$viewContext);
+if(strpos($supportView,'<script>source data')!==false || strpos($supportView,'<script>review note')!==false || strpos($supportView,'&lt;script&gt;source data')===false || strpos($supportView,'<h2>Plan</h2>')===false){throw new RuntimeException('Evidence, review notes and rendered plan must remain escaped');}
+$progress=$twig->render('treatment/progress.html.twig',['plan'=>$plan,'entries'=>[['objective'=>'<script>goal</script>','status'=>'improving','measure'=>'diary','note'=>'<script>progress</script>','date_created'=>'2026-11-08','fname'=>'Test','lname'=>'Reviewer','encounter_id'=>20,'plan_version'=>5]],
+ 'form_version'=>3,'can_record'=>true,'input'=>['objective'=>'Goal','status'=>'in_progress','measure'=>'','note'=>'<script>draft</script>','request_key'=>str_repeat('a',64)],'error'=>'','saved'=>false,'statuses'=>['improving'],'followup_encounter'=>20,'csrf_token_form'=>'valid','webroot'=>'']);
+if(strpos($progress,'<script>progress')!==false || strpos($progress,'&lt;script&gt;progress')===false || strpos($progress,'name="expected_version" value="3"')===false){throw new RuntimeException('Progress must escape notes and bind the plan version');}
+$createSupport=$twig->render('treatment/create.html.twig',['plan'=>null,'error'=>'','csrf_token_form'=>'valid','request_key'=>str_repeat('b',64),'pid'=>10,'encounter'=>20,'webroot'=>'','module_name'=>'oe-module-treatment-planner','observations'=>'','assessment_preview'=>$viewContext['assessment_evidence'],'acknowledge_missing'=>false]);
+if(strpos($createSupport,'name="acknowledge_missing"')===false || strpos($createSupport,'&lt;script&gt;source data')===false){throw new RuntimeException('Readiness preview must show escaped evidence and gap acknowledgement');}
+echo "16 template integration checks passed\n";

@@ -34,7 +34,7 @@ $model = $configService->getModel();
 $temperature = $configService->getTemperature();
 $testConnectionResult = null;
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['save_assessment_profile'])) {
     $token = is_string($_POST['csrf_token_form'] ?? null) ? $_POST['csrf_token_form'] : '';
     if (!CsrfService::verifyCsrfToken($token)) {
         $errorMessage = xl('Authentication Error');
@@ -60,6 +60,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 }
+
+$assessmentProfile = ['form' => 'LBF_MHINTAKE', 'map' => []];
+try {
+    $profiles = new \OpenEMR\Modules\TreatmentPlanner\Services\AssessmentProfileService();
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_assessment_profile'])) {
+        if (!CsrfService::verifyCsrfToken($_POST['csrf_token_form'] ?? '', 'treatment-planner-profile')) { throw new \OpenEMR\Modules\TreatmentPlanner\Exceptions\UserFacingException('Authentication Error'); }
+        $profiles->save(is_string($_POST['assessment_form'] ?? null) ? trim($_POST['assessment_form']) : '', is_string($_POST['assessment_mapping'] ?? null) ? $_POST['assessment_mapping'] : '');
+        $successMessage = xl('Assessment profile saved. Existing plan evidence is unchanged.');
+    }
+    $assessmentProfile = $profiles->current();
+} catch (Throwable $e) { $errorMessage = \OpenEMR\Modules\TreatmentPlanner\Services\ErrorService::publicMessage($e, 'assessment_profile'); }
 
 // Get current API key status (configured or not)
 $apiKeyConfigured = $configService->isApiKeyConfigured();
@@ -201,5 +212,15 @@ $apiKeyConfigured = $configService->isApiKeyConfigured();
         });
     });
     </script>
+
+<div class="container my-4"><h3><?php echo xlt('Assessment form profile'); ?></h3>
+<p><?php echo xlt('Choose one installed layout-based assessment form. Map canonical Treatment Planner field IDs to source field IDs using a JSON object. Unmapped matching field IDs are used directly. This does not install or clinically validate a form.'); ?></p>
+<form method="post">
+<input type="hidden" name="csrf_token_form" value="<?php echo attr(CsrfService::collectCsrfToken('treatment-planner-profile')); ?>">
+<label for="assessment-form"><?php echo xlt('Assessment form ID'); ?></label><input class="form-control" id="assessment-form" name="assessment_form" value="<?php echo attr($assessmentProfile['form']); ?>" required maxlength="31">
+<label for="assessment-mapping"><?php echo xlt('Field mapping JSON'); ?></label><textarea class="form-control" id="assessment-mapping" name="assessment_mapping" rows="5"><?php echo text(json_encode((object)$assessmentProfile['map'], JSON_PRETTY_PRINT)); ?></textarea>
+<small><?php echo xlt('Example: {"reason_visit":"chief_complaint","treatment_goals":"patient_goals"}. Canonical field IDs are documented in docs/ASSESSMENT-PROFILES.md.'); ?></small>
+<button class="btn btn-primary d-block my-2" name="save_assessment_profile" value="1" type="submit"><?php echo xlt('Save assessment profile'); ?></button>
+</form></div>
 </body>
 </html>

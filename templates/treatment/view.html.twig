@@ -112,6 +112,22 @@
                           <dl>{% for key, label in generation_labels %}{% if plan.generation_metadata[key] is defined %}<dt>{{ label|xlt }}</dt><dd>{{ plan.generation_metadata[key]|text }}</dd>{% endif %}{% endfor %}</dl>
                         {% else %}<p>{{ "Generation metadata was not recorded for this plan."|xlt }}</p>{% endif %}
                         </details>
+                        <div class="alert alert-info">{{ 'AI-assisted plan: verify diagnoses, medication references and recommendations against the chart. Source references identify recorded inputs; they do not prove a claim is correct.'|xlt }}</div>
+                        <section class="no-print mb-3">
+                          <h3>{{ 'Assessment evidence and clinician review'|xlt }}</h3>
+                          {% if source_review_warnings|default([]) %}<div class="alert alert-warning"><h4>{{ 'Claims to verify'|xlt }}</h4><ul>{% for warning in source_review_warnings %}<li>{{ warning|text }}</li>{% endfor %}</ul></div>{% endif %}
+                          {% if assessment_evidence|default(null) %}
+                          <p>{{ 'Input snapshot captured at generation'|xlt }}: {{ assessment_evidence.captured_at|text }} — {{ assessment_evidence.source.form|text }} — {{ 'Encounter'|xlt }} {{ assessment_evidence.source.encounter|text }}</p>
+                          {% if assessment_evidence.missing %}<p class="alert alert-warning">{{ 'Missing or uncertain at generation'|xlt }}: {{ assessment_evidence.missing|join(', ')|text }}</p>{% endif %}
+                          <details><summary>{{ 'Recorded assessment inputs (preserved at generation)'|xlt }}</summary>
+                          <table class="table table-sm"><thead><tr><th>{{ 'Reference'|xlt }}</th><th>{{ 'Source field'|xlt }}</th><th>{{ 'Recorded value'|xlt }}</th></tr></thead><tbody>
+                          {% for source in assessment_evidence.sources %}<tr><td>[{{ source.reference|text }}]</td><td>{{ source.label|text }} ({{ source.source_field|text }})</td><td>{{ source.value|text }}</td></tr>{% endfor %}
+                          </tbody></table><h4>{{ 'Additional observations submitted at generation'|xlt }}</h4><p>{{ assessment_evidence.observations|text }}</p></details>
+                          {% else %}<p>{{ 'No generation-time assessment snapshot exists for this older plan. Current chart data must not be treated as its original source.'|xlt }}</p>{% endif %}
+                          <details><summary>{{ 'Recorded approval and finalization acknowledgements'|xlt }}</summary>
+                          {% for review in clinical_reviews|default([]) %}<p>{{ review.date_created|text }} — {{ review.fname|text }} {{ review.lname|text }} — {{ review.status|text }} — {{ 'Version'|xlt }} {{ review.plan_version|text }}<br>{{ review.note|text }}</p>{% else %}<p>{{ 'No recorded checklist acknowledgements for this plan.'|xlt }}</p>{% endfor %}
+                          </details>
+                        </section>
                         <div class="treatment-content mb-4">
                             {% if plan_content_html is defined %}{{ plan_content_html|raw }}{% else %}{{ plan.content|nl2br }}{% endif %}
                         </div>
@@ -119,6 +135,7 @@
                         <div class="row mt-4">
                             <div class="col-md-12">
                                 <div class="btn-group no-print" role="group">
+                                    <a class="btn btn-outline-primary" href="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/treatment/progress?id={{ plan.id|attr }}">{{ 'Track goal progress'|xlt }}</a>
                                     {% if plan.status != 'finalized' %}<a href="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/treatment/edit?id={{ plan.id }}" class="btn btn-primary">
                                         {{ "Edit Plan"|xlt }}
                                     </a>{% endif %}
@@ -144,6 +161,8 @@
                                         <input type="hidden" name="plan_id" value="{{ plan.id|attr }}">
                                         <input type="hidden" name="expected_version" value="{{ plan.version|attr }}">
                                         
+                                        {% if plan.status in ['pending_review','approved'] %}{% include 'treatment/review-checklist.twig' %}{% endif %}
+                                        <div id="review-feedback" class="alert alert-warning" role="alert" hidden></div>
                                         <div class="workflow-actions">
                                             {% if plan.status == 'draft' %}
                                                 <button type="button" class="btn btn-warning status-btn" data-status="pending_review">
@@ -233,6 +252,19 @@ document.addEventListener('DOMContentLoaded', function() {
                 'finalized': '{{ "Finalized"|xlt }}'
             }[status];
             
+            const reviewFeedback = document.getElementById('review-feedback');
+            if (['approved', 'finalized'].includes(status)) {
+                const acknowledgements = document.querySelectorAll('#status-form .review-checklist input[type="checkbox"]');
+                if (acknowledgements.length !== 3 || Array.from(acknowledgements).some(input => !input.checked)) {
+                    if (reviewFeedback) {
+                        reviewFeedback.textContent = '{{ "Complete every clinician review acknowledgement before approval or finalization."|xlt|js_escape }}';
+                        reviewFeedback.hidden = false;
+                        reviewFeedback.scrollIntoView({block: 'center'});
+                    }
+                    return;
+                }
+            }
+            if (reviewFeedback) { reviewFeedback.hidden = true; }
             if (confirm('{{ "Are you sure you want to change the status to"|xlt }} ' + statusName + '?')) {
                 const form = document.getElementById('status-form');
                 const statusInput = document.createElement('input');

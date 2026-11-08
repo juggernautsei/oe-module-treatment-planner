@@ -56,6 +56,22 @@
                         <input type="hidden" name="request_key" value="{{ request_key|attr }}">
                         <input type="hidden" name="pid" value="{{ pid|attr }}">
                         <input type="hidden" name="encounter" value="{{ encounter|attr }}">
+                        <input type="hidden" name="assessment_fingerprint" value="{{ assessment_fingerprint|default('')|attr }}">
+                        {% if assessment_preview|default([]) %}
+                        <section class="card my-3"><div class="card-body">
+                          <h3>{{ 'Assessment readiness'|xlt }}</h3>
+                          <p>{{ 'Using the latest saved assessment in this encounter'|xlt }}: {{ assessment_preview.source.form|text }} — {{ assessment_preview.source.date|text }}</p>
+                          <p>{{ 'Recorded input is not independently verified. The AI must not invent missing information.'|xlt }}</p>
+                          {% if assessment_preview.missing %}<div class="alert alert-warning">{{ 'Missing or uncertain information'|xlt }}: {{ assessment_preview.missing|join(', ')|text }}</div>
+                          <label><input type="checkbox" name="acknowledge_missing" value="1" {% if acknowledge_missing|default(false) %}checked{% endif %}> {{ 'I reviewed these gaps and will verify the draft against the chart before approval.'|xlt }}</label>
+                          {% else %}<p>{{ 'The configured key assessment fields contain documented values. This is a completeness check, not a clinical validation.'|xlt }}</p>{% endif %}
+                          <details><summary>{{ 'Review recorded source inputs before generation'|xlt }}</summary>
+                          <table class="table table-sm"><thead><tr><th>{{ 'Reference'|xlt }}</th><th>{{ 'Assessment field'|xlt }}</th><th>{{ 'Recorded value'|xlt }}</th></tr></thead><tbody>
+                          {% for source in assessment_preview.sources %}<tr><td>[{{ source.reference|text }}]</td><td>{{ source.label|text }} ({{ source.source_field|text }})</td><td>{{ source.value|text }}</td></tr>{% endfor %}
+                          </tbody></table></details>
+                        </div></section>
+                        {% endif %}
+
 
                         <div class="form-group">
                             <label for="observations">{{ "Clinical Observations & Additional Notes"|xlt }}</label>

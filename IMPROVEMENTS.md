@@ -70,3 +70,7 @@ See [EDITS-1.0.7.md](EDITS-1.0.7.md). Added accessible model choices, safe actio
 ## Version 1.0.8: structured print formatting
 
 See [EDITS-1.0.8.md](EDITS-1.0.8.md). Plan views render safe headings, bold text and nested lists, with cleaner print styles. Stored records remain unchanged. Full PDF export verification is still pending.
+
+## Version 1.1.0: evidence, review and progress
+
+See [EDITS-1.1.0.md](EDITS-1.1.0.md) for frozen source snapshots, assessment completeness and stale-preview checks, configurable assessment forms, recorded review acknowledgements and append-only goal progress. Database upgrade to version 6 is required. [Compatibility limits](docs/COMPATIBILITY.md) distinguish core API/template tests from full browser validation.

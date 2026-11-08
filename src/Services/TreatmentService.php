@@ -103,10 +103,24 @@ class TreatmentService
         }
         try {
             $assessmentData = $this->assessmentService->getComprehensiveAssessmentData($patientId, $encounterId);
+            $snapshot = $this->assessmentService->getLastSnapshot();
+            if (!$snapshot) { throw new UserFacingException('Assessment evidence is unavailable. Reload the assessment before generation.'); }
+            $previewHash = $options['assessment_fingerprint'] ?? '';
+            if (!is_string($previewHash) || !hash_equals(AssessmentEvidenceService::fingerprint($snapshot), $previewHash)) {
+                throw new UserFacingException('The assessment changed or was not previewed. Reload the create form and review its current inputs.');
+            }
+            $gapsAcknowledged = ($options['acknowledge_missing'] ?? false) === true;
+            AssessmentEvidenceService::assertReady($snapshot, $gapsAcknowledged);
+            if (trim($observations) !== '') {
+                $snapshot['sources'][] = ['reference'=>'O1', 'field'=>'additional_observations', 'source_field'=>'submitted observations',
+                    'label'=>'Additional observations at generation', 'value'=>$observations, 'documented'=>true];
+            }
+            $assessmentData .= AssessmentEvidenceService::promptSources($snapshot);
             $planData = $this->openAIService->generateTreatmentPlan($assessmentData, $observations, $options, $providerId);
             QueryUtils::sqlStatementThrowException('START TRANSACTION');
             try {
                 $planId = $this->storeTreatmentPlan($patientId, $encounterId, $planData['content'], $planData['sections'], $providerId, $planData['metadata'] ?? []);
+                (new AssessmentEvidenceService())->save($planId, $snapshot, $observations, $gapsAcknowledged);
                 $requests->complete($requestKey, $planId);
                 QueryUtils::sqlStatementThrowException('COMMIT');
             } catch (\Throwable $e) {
@@ -123,6 +137,14 @@ class TreatmentService
             }
             throw $e;
         }
+    }
+
+    public function previewAssessment(int $patientId, int $encounterId): array
+    {
+        AccessService::assertPatient($patientId, true, $encounterId);
+        if ($encounterId <= 0) { throw new UserFacingException('Select an encounter before preparing a plan.'); }
+        $this->assessmentService->getComprehensiveAssessmentData($patientId, $encounterId);
+        return $this->assessmentService->getLastSnapshot() ?? [];
     }
 
     /**
@@ -244,6 +266,9 @@ class TreatmentService
             }
             if (trim(strip_tags($content)) === '') {
                 throw new UserFacingException('Treatment plan content cannot be empty.');
+            }
+            if (in_array($status, [self::STATUS_APPROVED, self::STATUS_FINALIZED], true)) {
+                (new ReviewChecklistService())->record($planId, (int)$current['version'] + 1, $providerId, $status, $data);
             }
             // Save the previous state, including original attribution, before overwriting.
             QueryUtils::sqlStatementThrowException(
@@ -372,11 +397,11 @@ class TreatmentService
      * @param int $providerId Provider ID making the change
      * @return bool Whether the status change was successful
      */
-    public function changeStatus(int $planId, string $status, int $providerId, int $expectedVersion): bool
+    public function changeStatus(int $planId, string $status, int $providerId, int $expectedVersion, array $review = []): bool
     {
         return $this->updateTreatmentPlan($planId, [
             'status' => $status, 'expected_version' => $expectedVersion
-        ], $providerId);
+        ] + array_intersect_key($review, ReviewChecklistService::ITEMS + ['review_note' => '']), $providerId);
     }
 
     /**

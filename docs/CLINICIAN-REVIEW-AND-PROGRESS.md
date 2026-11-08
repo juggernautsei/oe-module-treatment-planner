@@ -1,0 +1,9 @@
+# Review and progress workflow
+
+Before approval or finalization, a signing-authorized clinician must explicitly acknowledge checking the assessment and gaps, AI suggestions and unsupported claims, and clinical diagnoses/interventions/medication references. The server enforces every acknowledgement; hiding or bypassing browser checkboxes does not bypass the rule. Review notes are optional and limited to 4000 characters.
+
+The acknowledgement is recorded in the same transaction as the status transition, with reviewer identity, resulting plan version, status and time. Content edits still return the plan to draft. Approvals do not automatically validate clinical accuracy. Older approvals/finalized records are not altered or assigned invented review attestations.
+
+The Track goal progress link opens append-only follow-up records. A medical-record writer can record an objective, progress status, optional measurement and a note in the currently selected follow-up encounter. The record preserves author, encounter, time and the plan version reviewed. The original plan encounter and follow-up encounter must both be accessible in the selected patient chart; encounter sensitivity checks apply. Read-only users can view permitted entries but cannot write them. Signing authority is required for plan approval, not for ordinary progress notes.
+
+Finalized plans stay immutable. Progress does not change their text, version or status. Repeating the same submission does not create duplicates. A changed plan version requires reloading the progress page; failed submissions preserve notes without silently rebasing their version. The screen shows the latest 100 accessible entries, not an outcome score or a validated clinical measurement instrument. There is no automatic treatment recommendation or AI call when recording progress.

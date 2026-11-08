@@ -62,10 +62,13 @@ class TreatmentController
 
         $error = '';
         $plan = null;
+        $assessmentPreview = [];
         $observations = is_string($_POST['observations'] ?? '') ? ($_POST['observations'] ?? '') : '';
 
         try {
             AccessService::assertPatient((int)$pid, true, (int)$encounterId);
+            try { $assessmentPreview = $this->treatmentService->previewAssessment((int)$pid, (int)$encounterId); }
+            catch (\Throwable $e) { $error = ErrorService::publicMessage($e, 'assessment_preview'); }
             // Check if API key is configured
             if (!$this->configService->isApiKeyConfigured()) {
                 $error = xl('OpenAI API key is not configured. Please configure it in the module settings.');
@@ -85,7 +88,7 @@ class TreatmentController
                             (int)$pid,
                             (int)$encounterId,
                             $observations,
-                            [],
+                            ['acknowledge_missing' => ($_POST['acknowledge_missing'] ?? null) === '1', 'assessment_fingerprint' => is_string($_POST['assessment_fingerprint'] ?? null) ? $_POST['assessment_fingerprint'] : ''],
                             $providerId,
                             is_string($_POST['request_key'] ?? null) ? $_POST['request_key'] : ''
                         );
@@ -111,6 +114,9 @@ class TreatmentController
                 'error' => $error,
                 'plan' => $plan,
                 'observations' => $observations,
+                'assessment_preview' => $assessmentPreview,
+                'assessment_fingerprint' => $assessmentPreview ? \OpenEMR\Modules\TreatmentPlanner\Services\AssessmentEvidenceService::fingerprint($assessmentPreview) : '',
+                'acknowledge_missing' => ($_POST['acknowledge_missing'] ?? null) === '1',
                 'request_key' => \OpenEMR\Modules\TreatmentPlanner\Services\GenerationRequestService::newKey(),
                 'webroot' => $GLOBALS['webroot'],
                 'module_name' => 'oe-module-treatment-planner'
@@ -175,7 +181,7 @@ class TreatmentController
                     $status = isset($_POST['submit_finalize']) ? TreatmentService::STATUS_FINALIZED : $selectedStatus;
                     if (!$this->treatmentService->updateTreatmentPlan($planId, [
                         'content' => $editorContent, 'status' => $status, 'expected_version' => $formVersion
-                    ], (int)(SessionContext::get('authUserID', 0)))) { throw new UserFacingException('Unable to save treatment plan'); }
+                    ] + array_intersect_key($_POST, \OpenEMR\Modules\TreatmentPlanner\Services\ReviewChecklistService::ITEMS + ['review_note' => '']), (int)(SessionContext::get('authUserID', 0)))) { throw new UserFacingException('Unable to save treatment plan'); }
                     $saved = true;
                     $refreshedPlan = $this->treatmentService->getTreatmentPlan($planId);
                     if (!$refreshedPlan) { throw new UserFacingException('Saved plan is temporarily unavailable.'); }
@@ -223,9 +229,13 @@ class TreatmentController
                 $error = xl('Treatment plan not found');
             }
 
+            $evidence = $plan ? (new \OpenEMR\Modules\TreatmentPlanner\Services\AssessmentEvidenceService())->get((int)$plan['id']) : null;
             // Render the view template
             echo $this->twig->getTwig()->render('treatment/view.html.twig', [
                 'missing_sections' => $plan ? ($this->structureService ?? ModuleServiceFactory::structure())->missingSections($plan['content']) : [],
+                'assessment_evidence' => $evidence,
+                'source_review_warnings' => $plan ? \OpenEMR\Modules\TreatmentPlanner\Services\SourceReviewService::warnings($plan['content'], $evidence) : [],
+                'clinical_reviews' => $plan ? \OpenEMR\Common\Database\QueryUtils::fetchRecords('SELECT r.*, u.fname, u.lname FROM module_treatment_planner_reviews r LEFT JOIN users u ON u.id = r.reviewer_id WHERE r.plan_id = ? ORDER BY r.id DESC LIMIT 50', [(int)$plan['id']]) : [],
                 'plan_content_html' => $plan ? (new \OpenEMR\Modules\TreatmentPlanner\Services\PlanContentRenderer())->render($plan['content']) : '',
                 'csrf_token_form' => CsrfService::collectCsrfToken('treatment-planner'),
                 'plan' => $plan,
@@ -343,7 +353,7 @@ class TreatmentController
             }
 
             // Change the status
-            if ($this->treatmentService->changeStatus($planId, $status, $providerId, (int)($_POST['expected_version'] ?? 0))) {
+            if ($this->treatmentService->changeStatus($planId, $status, $providerId, (int)($_POST['expected_version'] ?? 0), array_intersect_key($_POST, \OpenEMR\Modules\TreatmentPlanner\Services\ReviewChecklistService::ITEMS + ['review_note' => '']))) {
                 $response['success'] = true;
                 $response['message'] = xl('Status updated successfully');
             } else {
@@ -390,7 +400,7 @@ class TreatmentController
             }
 
             // Update to finalized status
-            $updateData = ['status' => 'finalized', 'expected_version' => (int)($_POST['expected_version'] ?? 0)];
+            $updateData = ['status' => 'finalized', 'expected_version' => (int)($_POST['expected_version'] ?? 0)] + array_intersect_key($_POST, \OpenEMR\Modules\TreatmentPlanner\Services\ReviewChecklistService::ITEMS + ['review_note' => '']);
             
             // Ensure we have encounter and patient data from session
             if (SessionContext::get('encounter') !== null && SessionContext::get('pid') !== null) {

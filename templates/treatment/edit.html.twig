@@ -104,6 +104,7 @@
                                     </div>
                                 </div>
                             </div>
+{% if not read_only|default(false) %}{% include 'treatment/review-checklist.twig' %}{% endif %}
                         </form>
                     </div>
                     <div class="card-footer">

@@ -42,11 +42,11 @@ class SchemaService
     {
         $row = sqlQuery("SELECT COUNT(*) AS table_count FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()
             AND TABLE_NAME IN ('module_treatment_planner_config', 'module_treatment_planner_plans',
-            'module_treatment_planner_templates', 'module_treatment_planner_usage', 'module_treatment_planner_revisions', 'module_treatment_planner_requests', 'module_treatment_planner_usage_queue')");
+            'module_treatment_planner_templates', 'module_treatment_planner_usage', 'module_treatment_planner_revisions', 'module_treatment_planner_requests', 'module_treatment_planner_usage_queue', 'module_treatment_planner_evidence', 'module_treatment_planner_reviews', 'module_treatment_planner_progress')");
         $column = sqlQuery("SELECT IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE()
             AND TABLE_NAME = 'module_treatment_planner_usage' AND COLUMN_NAME = 'estimated_cost'");
         $metadata = sqlQuery("SELECT COUNT(*) AS metadata_count FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'module_treatment_planner_plans' AND COLUMN_NAME = 'generation_metadata'");
-        if ((int)($metadata['metadata_count'] ?? 0) !== 1 || (int)($row['table_count'] ?? 0) !== 7 || ($column['IS_NULLABLE'] ?? '') !== 'YES') {
+        if ((int)($metadata['metadata_count'] ?? 0) !== 1 || (int)($row['table_count'] ?? 0) !== 10 || ($column['IS_NULLABLE'] ?? '') !== 'YES') {
             throw new UserFacingException('Treatment Planner database upgrade required. Ask a module administrator to run Upgrade or re-enable the module.');
         }
     }

@@ -21,7 +21,13 @@ use Exception;
  */
 class AssessmentService
 {
+    public const FIELD_IDS = ['reason_visit', 'problem_start', 'problem_duration', 'problem_severity', 'precipitating_factors', 'current_stressors', 'appearance_build', 'appearance_hygiene', 'appearance_dress', 'appearance_grooming', 'orientation', 'consciousness', 'alertness', 'concentration', 'attention', 'memory_short', 'memory_long', 'intelligence', 'eye_contact', 'gait', 'psychomotor', 'cooperation', 'speech_rate', 'speech_volume', 'speech_content', 'speech_fluency', 'mood', 'affect_range', 'affect_amplitude', 'affect_appropriate', 'thought_organization', 'thought_coherence', 'thought_goal_directed', 'delusions', 'obsessions', 'phobias', 'suicidal_ideation', 'homicidal_ideation', 'hallucinations_auditory', 'hallucinations_visual', 'hallucinations_other', 'insight', 'judgment', 'suicide_current', 'suicide_plan', 'suicide_means', 'suicide_history', 'suicide_protective', 'violence_current', 'violence_history', 'violence_triggers', 'substance_current', 'substances_used', 'substance_frequency', 'substance_impact', 'psychiatric_history', 'medical_history', 'family_psych_history', 'current_medications', 'allergies', 'work_functioning', 'social_functioning', 'family_functioning', 'self_care', 'adl_description', 'primary_diagnosis', 'secondary_diagnoses', 'rule_out_diagnoses', 'diagnosis_severity', 'previous_therapy', 'previous_medications', 'psychiatric_hospitalizations', 'treatment_response', 'living_situation', 'support_system', 'education_level', 'employment_status', 'financial_stressors', 'legal_issues', 'cultural_factors', 'personal_strengths', 'coping_skills', 'motivation_change', 'treatment_goals', 'available_resources'];
+    private ?array $lastSnapshot = null;
+    private array $sourceRecord = [];
     private array $listValueCache = [];
+
+    public function getLastSnapshot(): ?array { return $this->lastSnapshot; }
+
     /**
      * Extract comprehensive assessment data for AI processing
      *
@@ -37,11 +43,12 @@ class AssessmentService
         }
 
         try {
+            $this->lastSnapshot = null;
             // Get the form data
             $formData = $this->getFormData($pid, $encounter);
             
             if (empty($formData)) {
-                throw new UserFacingException("No LBF_MHINTAKE assessment data found for this encounter. Please ensure the assessment form has been completed and saved.");
+                throw new UserFacingException("No assessment data found for the configured form in this encounter. Complete and save the assessment first.");
             }
 
             // Structure the data for AI processing
@@ -59,6 +66,18 @@ class AssessmentService
                 'strengths_resources' => $this->extractStrengthsResources($formData)
             ];
 
+            $this->lastSnapshot = AssessmentEvidenceService::snapshot($formData, $this->sourceRecord);
+            foreach ($structuredData['patient_info'] as $field => $value) {
+                if ($value === null || $value === '') { continue; }
+                $this->lastSnapshot['sources'][] = ['reference' => 'P' . (count($this->lastSnapshot['sources']) + 1),
+                    'field' => 'patient_' . $field, 'source_field' => 'patient_data/' . $field,
+                    'label' => 'Chart demographics: ' . $field, 'value' => (string)$value, 'documented' => true];
+            }
+            foreach ($structuredData['diagnoses'] as $index => $diagnosis) {
+                $this->lastSnapshot['sources'][] = ['reference' => 'D' . ($index + 1), 'field' => 'chart_problem_list',
+                    'source_field' => 'lists/medical_problem', 'label' => 'Chart problem list (requires clinical verification)',
+                    'value' => ($diagnosis['title'] ?? '') . ' ' . ($diagnosis['diagnosis_code'] ?? ''), 'documented' => true];
+            }
             return $structuredData;
 
         } catch (Exception $e) {
@@ -75,29 +94,29 @@ class AssessmentService
      */
     private function getFormData(int $pid, int $encounter): array
     {
-        $sql = "SELECT ld.field_id, ld.field_value, lo.title, lo.data_type, lo.list_id
-                FROM forms f
-                JOIN lbf_data ld ON f.form_id = ld.form_id
-                JOIN layout_options lo ON ld.field_id = lo.field_id 
-                    AND lo.form_id = 'LBF_MHINTAKE'
-                WHERE f.pid = ? 
-                AND f.encounter = ? 
-                AND f.formdir = 'LBF_MHINTAKE'
-                AND f.deleted = 0
-                ORDER BY lo.seq";
-
-        $result = sqlStatement($sql, [$pid, $encounter]);
+        $profile = (new AssessmentProfileService())->current();
+        $reverse = array_flip($profile['map']);
+        $sql = "SELECT ld.field_id, ld.field_value, lo.title, lo.data_type, lo.list_id,
+                       f.form_id AS source_form_id, f.id AS source_record_id, f.date AS source_date
+                FROM forms f JOIN lbf_data ld ON f.form_id = ld.form_id
+                JOIN layout_options lo ON ld.field_id = lo.field_id AND lo.form_id = ? AND lo.uor > 0
+                WHERE f.id = (SELECT f2.id FROM forms f2 WHERE f2.pid = ? AND f2.encounter = ?
+                    AND f2.formdir = ? AND f2.deleted = 0 ORDER BY f2.date DESC, f2.id DESC LIMIT 1)
+                ORDER BY lo.seq, lo.field_id";
+        $result = sqlStatement($sql, [$profile['form'], $pid, $encounter, $profile['form']]);
         $formData = [];
-
+        $this->sourceRecord = ['form' => $profile['form'], 'encounter' => $encounter];
         while ($row = sqlFetchArray($result)) {
-            $formData[$row['field_id']] = [
-                'value' => $row['field_value'],
-                'title' => $row['title'],
-                'data_type' => $row['data_type'],
-                'list_id' => $row['list_id']
-            ];
+            $canonical = $reverse[$row['field_id']] ?? $row['field_id'];
+            if (!in_array($canonical, self::FIELD_IDS, true)) { continue; }
+            if (isset($profile['map'][$canonical]) && $row['field_id'] !== $profile['map'][$canonical]) { continue; }
+            $this->sourceRecord['form_id'] = (int)$row['source_form_id'];
+            $this->sourceRecord['record_id'] = (int)$row['source_record_id'];
+            $this->sourceRecord['date'] = $row['source_date'];
+            $formData[$canonical] = ['value' => (string)$row['field_value'], 'title' => $row['title'],
+                'data_type' => $row['data_type'], 'list_id' => $row['list_id'], 'source_field' => $row['field_id'],
+                'display' => $this->getListValue((string)$row['field_value'], (string)$row['list_id'])];
         }
-
         return $formData;
     }
 
@@ -406,7 +425,7 @@ class AssessmentService
         // Only the fields explicitly extracted by this module are included. Keep
         // nested risk details, medication/allergy history and documented negatives.
         $sections = [
-            'patient_info' => 'PATIENT', 'diagnoses' => 'CURRENT DIAGNOSES',
+            'patient_info' => 'PATIENT', 'diagnoses' => 'CHART PROBLEM LIST - REQUIRES CLINICIAN VERIFICATION',
             'presenting_problem' => 'PRESENTING PROBLEM', 'mental_status_exam' => 'MENTAL STATUS EXAMINATION',
             'risk_assessment' => 'RISK ASSESSMENT', 'clinical_history' => 'CLINICAL HISTORY',
             'functional_assessment' => 'FUNCTIONAL ASSESSMENT', 'diagnostic_impressions' => 'DIAGNOSTIC IMPRESSIONS',

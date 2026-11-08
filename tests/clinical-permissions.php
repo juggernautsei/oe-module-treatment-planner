@@ -1,0 +1,21 @@
+<?php
+ob_start(); require __DIR__.'/regression.php'; ob_end_clean();
+use OpenEMR\Common\Acl\AclMain;
+use OpenEMR\Common\Database\QueryUtils;
+use OpenEMR\Modules\TreatmentPlanner\Services\ProgressService;
+$before=$count;$p=new ProgressService();
+$input=['objective'=>'Synthetic goal','status'=>'improving','measure'=>'Synthetic diary','note'=>'Synthetic follow-up','request_key'=>str_repeat('c',64)];
+resetState('finalized');AclMain::$denied=['patients/med/write'];
+rejects(fn()=>$p->append(1,2,20,$input),'Access denied');
+check(end(QueryUtils::$queries)[0]==='ROLLBACK','Read-only users must not write progress');
+resetState('finalized');$_SESSION['pid']=11;
+rejects(fn()=>$p->append(1,2,20,$input),'Access denied');
+resetState('finalized');$GLOBALS['testSensitivity']='restricted';AclMain::$denied=['sensitivities/restricted/'];
+rejects(fn()=>$p->append(1,2,20,$input),'Access denied');
+resetState('finalized');AclMain::$denied=['patients/sign/write'];
+QueryUtils::$singleHandler=fn($sql,$params)=>strpos($sql,'FROM module_treatment_planner_plans')!==false?QueryUtils::$plan:null;
+$p->append(1,2,20,$input);
+check(end(QueryUtils::$queries)[0]==='COMMIT','Medical writers may record follow-up without approval privileges');
+check(count(array_filter(QueryUtils::$queries,fn($q)=>strpos($q[0],'UPDATE module_treatment_planner_plans')!==false))===0,'Follow-up must never update the plan');
+QueryUtils::$singleHandler=null;
+echo ($count-$before)." clinical permission checks passed\n";

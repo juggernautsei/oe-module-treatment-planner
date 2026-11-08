@@ -26,6 +26,8 @@ namespace {
     use OpenEMR\Modules\TreatmentPlanner\Services\OpenAIService;
     use OpenEMR\Modules\TreatmentPlanner\Services\UsageService;
     function sqlQuery($sql, $params = []) { return QueryUtils::querySingleRow($sql, $params); }
+    function sqlStatement($sql, $params = []) { return QueryUtils::sqlStatementThrowException($sql, $params); }
+    function sqlFetchArray($statement) { return $statement->fetch(PDO::FETCH_ASSOC); }
     function xlt($value) { return $value; }
     function addForm(...$args) {
         if (($GLOBALS['failFormMode'] ?? '') === 'exception') { throw new RuntimeException('Synthetic encounter-link failure'); }
@@ -53,7 +55,7 @@ namespace {
     SchemaService::migrate();
     SchemaService::migrate();
     SchemaService::assertReady();
-    verify((int)$db->query('SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()')->fetchColumn() === 7, 'Fresh install and repeated upgrades must create seven module tables');
+    verify((int)$db->query('SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()')->fetchColumn() === 10, 'Fresh install and repeated upgrades must create ten module tables');
     // Exercise the previous schema, then upgrade without losing historical estimates.
     $db->exec('ALTER TABLE module_treatment_planner_usage MODIFY estimated_cost decimal(10,6) NOT NULL DEFAULT 0');
     $db->exec("INSERT INTO module_treatment_planner_usage (provider_id, usage_datetime, model, estimated_cost) VALUES (7, NOW(), 'historical', 1.25)");
@@ -92,8 +94,8 @@ namespace {
     catch (PDOException $e) { verify($service->getTreatmentPlan($id)['content'] === $completePlan, 'Archive failure must roll back atomically'); }
     $db->exec("DELETE FROM module_treatment_planner_revisions WHERE plan_id = $id AND version = 2");
     $service->changeStatus($id, 'pending_review', 7, 2);
-    $service->changeStatus($id, 'approved', 7, 3);
-    $service->changeStatus($id, 'finalized', 7, 4);
+    $service->changeStatus($id, 'approved', 7, 3, ['review_sources'=>'1','review_suggestions'=>'1','review_clinical'=>'1']);
+    $service->changeStatus($id, 'finalized', 7, 4, ['review_sources'=>'1','review_suggestions'=>'1','review_clinical'=>'1']);
     verify($service->getTreatmentPlan($id)['status'] === 'finalized', 'Complete workflow must persist');
     try { $service->updateTreatmentPlan($id, ['expected_version' => 5, 'content' => 'Forbidden'], 7); throw new LogicException('Finalized edit accepted'); }
     catch (Exception $e) { verify(strpos($e->getMessage(), 'read-only') !== false, 'Finalized edit must be rejected'); }
@@ -112,6 +114,10 @@ namespace {
     // Exercise the real generation coordinator with a non-network AI adapter.
     class TestAssessment extends \OpenEMR\Modules\TreatmentPlanner\Services\AssessmentService {
         public function getComprehensiveAssessmentData(int $pid, int $encounter): string { return 'Synthetic assessment'; }
+        public function getLastSnapshot(): ?array {
+            $fields=[]; foreach (\OpenEMR\Modules\TreatmentPlanner\Services\AssessmentEvidenceService::IMPORTANT as $key=>$label) { $fields[$key]=['value'=>'Documented synthetic value','title'=>$label]; }
+            return \OpenEMR\Modules\TreatmentPlanner\Services\AssessmentEvidenceService::snapshot($fields,['form'=>'LBF_TEST','encounter'=>20,'form_id'=>1,'record_id'=>1]);
+        }
     }
     class TestAI extends OpenAIService {
         public int $calls = 0;
@@ -123,20 +129,21 @@ namespace {
             return ['content' => 'Generated synthetic plan', 'sections' => [], 'metadata' => []];
         }
     }
+    $testOptions = ['assessment_fingerprint'=>\OpenEMR\Modules\TreatmentPlanner\Services\AssessmentEvidenceService::fingerprint((new TestAssessment())->getLastSnapshot())];
     $testAI = new TestAI();
     (new ReflectionProperty($service, 'openAIService'))->setValue($service, $testAI);
     (new ReflectionProperty($service, 'assessmentService'))->setValue($service, new TestAssessment());
     $key = \OpenEMR\Modules\TreatmentPlanner\Services\GenerationRequestService::newKey();
-    $generated = $service->createTreatmentPlan(10, 20, 'Synthetic notes', [], 7, $key);
-    $replayed = $service->createTreatmentPlan(10, 20, 'Synthetic notes', [], 7, $key);
+    $generated = $service->createTreatmentPlan(10, 20, 'Synthetic notes', $testOptions, 7, $key);
+    $replayed = $service->createTreatmentPlan(10, 20, 'Synthetic notes', $testOptions, 7, $key);
     verify($generated['id'] == $replayed['id'] && $testAI->calls === 1, 'Duplicate submissions must return the same plan without a second AI call');
     verify($db->query("SELECT state FROM module_treatment_planner_requests WHERE request_key = '$key'")->fetchColumn() === 'completed', 'Plan and completed request must commit together');
-    try { $service->createTreatmentPlan(10, 20, 'Different notes', [], 7, $key); throw new LogicException('Mismatched submission accepted'); }
+    try { $service->createTreatmentPlan(10, 20, 'Different notes', $testOptions, 7, $key); throw new LogicException('Mismatched submission accepted'); }
     catch (RuntimeException $e) { verify(strpos($e->getMessage(), 'does not match') !== false && $testAI->calls === 1, 'Changed input cannot reuse a request key'); }
     $requests = new \OpenEMR\Modules\TreatmentPlanner\Services\GenerationRequestService();
     $pendingKey = $requests::newKey();
     $requests->begin($pendingKey, 10, 20, 7, 'Pending notes');
-    try { $service->createTreatmentPlan(10, 20, 'Pending notes', [], 7, $pendingKey); throw new LogicException('Pending request repeated'); }
+    try { $service->createTreatmentPlan(10, 20, 'Pending notes', $testOptions, 7, $pendingKey); throw new LogicException('Pending request repeated'); }
     catch (RuntimeException $e) { verify(strpos($e->getMessage(), 'already submitted') !== false && $testAI->calls === 1, 'Pending submissions must not start another AI call'); }
     // Hold the request lock on a separate connection to model a racing worker.
     $secondDb = new PDO($dsn, getenv('TP_TEST_USER') ?: 'root', getenv('TP_TEST_PASSWORD') ?: '', [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
@@ -147,9 +154,9 @@ namespace {
     catch (RuntimeException $e) { verify(strpos($e->getMessage(), 'already being processed') !== false, 'Only one racing worker may claim a request'); }
     $unlock = $secondDb->prepare('SELECT RELEASE_LOCK(?)'); $unlock->execute([$name]);
     $failedKey = $requests::newKey(); $testAI->fail = true;
-    try { $service->createTreatmentPlan(10, 20, 'Failure notes', [], 7, $failedKey); throw new LogicException('API failure hidden'); }
+    try { $service->createTreatmentPlan(10, 20, 'Failure notes', $testOptions, 7, $failedKey); throw new LogicException('API failure hidden'); }
     catch (RuntimeException $e) { verify(strpos($e->getMessage(), 'uncertain API failure') !== false, 'AI failure must propagate'); }
-    try { $service->createTreatmentPlan(10, 20, 'Failure notes', [], 7, $failedKey); throw new LogicException('Uncertain charge retried'); }
+    try { $service->createTreatmentPlan(10, 20, 'Failure notes', $testOptions, 7, $failedKey); throw new LogicException('Uncertain charge retried'); }
     catch (RuntimeException $e) { verify(strpos($e->getMessage(), 'already submitted') !== false && $testAI->calls === 2, 'Uncertain failures must not be automatically retried'); }
     $_SESSION['authUserID'] = 8;
     try { $requests->begin($key, 10, 20, 8, 'Synthetic notes'); throw new LogicException('Another author reused request'); }
@@ -159,7 +166,7 @@ namespace {
     $completionFailureKey = $requests::newKey();
     $planCountBefore = (int)$db->query('SELECT COUNT(*) FROM module_treatment_planner_plans')->fetchColumn();
     $db->exec("CREATE TRIGGER tp_completion_guard BEFORE UPDATE ON module_treatment_planner_requests FOR EACH ROW BEGIN IF NEW.state = 'completed' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Synthetic completion failure'; END IF; END");
-    try { $service->createTreatmentPlan(10, 20, 'Completion failure notes', [], 7, $completionFailureKey); throw new LogicException('Completion failure hidden'); }
+    try { $service->createTreatmentPlan(10, 20, 'Completion failure notes', $testOptions, 7, $completionFailureKey); throw new LogicException('Completion failure hidden'); }
     catch (PDOException $e) { verify((int)$db->query('SELECT COUNT(*) FROM module_treatment_planner_plans')->fetchColumn() === $planCountBefore, 'Plan must roll back if request completion fails'); }
     $db->exec('DROP TRIGGER tp_completion_guard');
     $initializer = new \OpenEMR\Modules\TreatmentPlanner\Services\TemplateInitializationService();
@@ -176,7 +183,7 @@ namespace {
         $GLOBALS['failFormMode'] = $mode;
         $key = $requests::newKey();
         $beforePlans = (int)$db->query('SELECT COUNT(*) FROM module_treatment_planner_plans')->fetchColumn();
-        try { $service->createTreatmentPlan(10, 20, 'Link failure notes', [], 7, $key); throw new LogicException('Detached plan accepted'); }
+        try { $service->createTreatmentPlan(10, 20, 'Link failure notes', $testOptions, 7, $key); throw new LogicException('Detached plan accepted'); }
         catch (Exception $e) { verify(strpos($e->getMessage(), 'Unable to link') !== false, 'Link failure must be reported clearly'); }
         verify((int)$db->query('SELECT COUNT(*) FROM module_treatment_planner_plans')->fetchColumn() === $beforePlans, 'A failed encounter link must roll back plan creation');
         verify($db->query("SELECT state FROM module_treatment_planner_requests WHERE request_key = '$key'")->fetchColumn() === 'failed', 'A failed link must not mark the request complete');
@@ -196,7 +203,7 @@ namespace {
     $realCoordinator = new DatabaseFixtureAI(new DatabaseAIConfig(), $realUsage, new \OpenEMR\Modules\TreatmentPlanner\Services\PromptGenerationService());
     (new ReflectionProperty($service, 'openAIService'))->setValue($service, $realCoordinator);
     $db->exec("CREATE TRIGGER tp_usage_guard BEFORE INSERT ON module_treatment_planner_usage FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Synthetic usage failure'");
-    $saved = $service->createTreatmentPlan(10, 20, 'Usage failure notes', [], 7, $requests::newKey());
+    $saved = $service->createTreatmentPlan(10, 20, 'Usage failure notes', $testOptions, 7, $requests::newKey());
     verify($service->getTreatmentPlan($saved['id'])['content'] === 'Output retained despite usage failure', 'Usage INSERT failure must not prevent saving generated content');
     verify((int)$db->query('SELECT COUNT(*) FROM forms WHERE form_id = ' . (int)$saved['id'])->fetchColumn() === 1, 'Successful creation must include its encounter form link');
     $retry = new \OpenEMR\Modules\TreatmentPlanner\Services\UsageRetryService();
@@ -212,7 +219,7 @@ namespace {
     $last = $db->query('SELECT * FROM module_treatment_planner_usage ORDER BY id DESC LIMIT 1')->fetch(PDO::FETCH_ASSOC);
     verify($last['usage_datetime'] === $queued['usage_datetime'] && $last['estimated_cost'] === $queued['estimated_cost'], 'Retry must preserve original timestamp and price');
     $db->exec("CREATE TRIGGER tp_queue_guard BEFORE INSERT ON module_treatment_planner_usage_queue FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Synthetic queue failure'");
-    $queueFailurePlan = $service->createTreatmentPlan(10, 20, 'Queue unavailable notes', [], 7, $requests::newKey());
+    $queueFailurePlan = $service->createTreatmentPlan(10, 20, 'Queue unavailable notes', $testOptions, 7, $requests::newKey());
     verify($service->getTreatmentPlan($queueFailurePlan['id'])['content'] === 'Output retained despite usage failure', 'Queue unavailability must not discard successful output');
     verify($queueFailurePlan['metadata']['usage_recorded'] === false && $retry->pendingCount() === 0, 'Unavailable queue must report unrecorded usage without pretending it was queued');
     $db->exec('DROP TRIGGER tp_queue_guard');
@@ -225,14 +232,65 @@ namespace {
     $db->exec("INSERT INTO module_treatment_planner_plans (patient_id, encounter_id, provider_id, content, sections) VALUES (10, 20, 7, 'Incomplete draft', '{}')");
     $incompleteId = (int)$db->lastInsertId();
     $service->changeStatus($incompleteId, 'pending_review', 7, 1);
-    try { $service->changeStatus($incompleteId, 'approved', 7, 2); throw new LogicException('Incomplete approval accepted'); }
+    try { $service->changeStatus($incompleteId, 'approved', 7, 2, ['review_sources'=>'1','review_suggestions'=>'1','review_clinical'=>'1']); throw new LogicException('Incomplete approval accepted'); }
     catch (\OpenEMR\Modules\TreatmentPlanner\Exceptions\UserFacingException $e) { verify(strpos($e->getMessage(), 'complete these sections') !== false, 'Database workflow must block incomplete approval'); }
     verify($service->getTreatmentPlan($incompleteId)['version'] == 2 && $service->getTreatmentPlan($incompleteId)['status'] === 'pending_review', 'Rejected structural approval must not alter status or version');
     $service->updateTreatmentPlan($incompleteId, ['content' => $completePlan, 'status' => 'draft', 'expected_version' => 2], 7);
     $service->changeStatus($incompleteId, 'pending_review', 7, 3);
-    $service->changeStatus($incompleteId, 'approved', 7, 4);
-    $service->changeStatus($incompleteId, 'finalized', 7, 5);
+    $service->changeStatus($incompleteId, 'approved', 7, 4, ['review_sources'=>'1','review_suggestions'=>'1','review_clinical'=>'1']);
+    $service->changeStatus($incompleteId, 'finalized', 7, 5, ['review_sources'=>'1','review_suggestions'=>'1','review_clinical'=>'1']);
     verify($service->getTreatmentPlan($incompleteId)['status'] === 'finalized', 'Completing the required sections must allow the review workflow');
+
+    // Evidence is stored atomically and is not reconstructed from a later chart state.
+    $evidenceService = new \OpenEMR\Modules\TreatmentPlanner\Services\AssessmentEvidenceService();
+    $evidence = $evidenceService->get((int)$generated['id']);
+    verify(!empty($evidence['sources']) && $evidence['observations'] === 'Synthetic notes', 'Generated plan must preserve its input snapshot and observations');
+    $encodedEvidence = $db->query('SELECT snapshot FROM module_treatment_planner_evidence WHERE plan_id = ' . (int)$generated['id'])->fetchColumn();
+    verify($encodedEvidence === json_encode($evidence, JSON_UNESCAPED_UNICODE), 'Evidence snapshot must round-trip without losing source values');
+    // A missing review acknowledgement must reject approval and leave the plan unchanged.
+    $db->exec("INSERT INTO module_treatment_planner_plans (patient_id, encounter_id, provider_id, content, sections, status) VALUES (10,20,7," . $db->quote($completePlan) . ", '{}', 'pending_review')");
+    $reviewId = (int)$db->lastInsertId();
+    try { $service->changeStatus($reviewId, 'approved', 7, 1); throw new LogicException('Unacknowledged approval accepted'); }
+    catch (\OpenEMR\Modules\TreatmentPlanner\Exceptions\UserFacingException $e) { verify(strpos($e->getMessage(), 'acknowledgement') !== false, 'Review checklist must be enforced server-side'); }
+    verify($service->getTreatmentPlan($reviewId)['version'] == 1, 'Rejected approval must not change the plan version');
+    $service->changeStatus($reviewId, 'approved', 7, 1, ['review_sources'=>'1','review_suggestions'=>'1','review_clinical'=>'1','review_note'=>'Synthetic clinician verification']);
+    $attestation = $db->query('SELECT * FROM module_treatment_planner_reviews WHERE plan_id = ' . $reviewId)->fetch(PDO::FETCH_ASSOC);
+    verify((int)$attestation['reviewer_id'] === 7 && (int)$attestation['plan_version'] === 2 && $attestation['note'] === 'Synthetic clinician verification', 'Review must preserve actor, resulting version and note');
+    $progressService = new \OpenEMR\Modules\TreatmentPlanner\Services\ProgressService();
+    $entry = ['objective'=>'Improve sleep','status'=>'improving','measure'=>'Synthetic sleep diary: six hours','note'=>'Synthetic follow-up only','request_key'=>str_repeat('e',64)];
+    $frozen = $service->getTreatmentPlan($id);
+    $progressService->append($id, (int)$frozen['version'], 20, $entry);
+    $progressService->append($id, (int)$frozen['version'], 20, $entry);
+    $entries = $progressService->listForPlan($frozen);
+    verify(count($entries) === 1 && (int)$entries[0]['actor_id'] === 7, 'Repeated follow-up submissions must create only one attributed record');
+    verify($service->getTreatmentPlan($id)['content'] === $frozen['content'] && $service->getTreatmentPlan($id)['version'] === $frozen['version'] && $frozen['status'] === 'finalized', 'Progress must not mutate a finalized plan');
+    try { $progressService->append($id, 1, 20, array_replace($entry, ['request_key'=>str_repeat('f',64)])); throw new LogicException('Stale progress accepted'); }
+    catch (\OpenEMR\Modules\TreatmentPlanner\Exceptions\UserFacingException $e) { verify(strpos($e->getMessage(), 'plan changed') !== false, 'Follow-up must bind to the current plan version'); }
+    $_SESSION['pid'] = 11;
+    try { $progressService->append($id, (int)$frozen['version'],20,$entry); throw new LogicException('Cross-patient progress accepted'); }
+    catch (\OpenEMR\Modules\TreatmentPlanner\Exceptions\UserFacingException $e) { verify(strpos($e->getMessage(), 'Access denied') !== false, 'Follow-up writes must enforce the selected chart'); }
+    $_SESSION['pid'] = 10;
+
+    // Exercise the actual assessment queries with multiple, deleted and alternate forms.
+    $db->exec("ALTER TABLE patient_data ADD race varchar(50) DEFAULT '', ADD ethnicity varchar(50) DEFAULT ''");
+    $db->exec("ALTER TABLE forms ADD date datetime DEFAULT NULL, ADD deleted tinyint DEFAULT 0");
+    $db->exec("CREATE TABLE layout_options (form_id varchar(31),field_id varchar(31),title varchar(100),data_type int,list_id varchar(100),uor int,seq int)");
+    $db->exec("CREATE TABLE layout_group_properties (grp_form_id varchar(31),grp_group_id varchar(31),grp_activity int)");
+    $db->exec("CREATE TABLE lbf_data (form_id int,field_id varchar(31),field_value text)");
+    $db->exec("CREATE TABLE lists (pid bigint,type varchar(50),diagnosis varchar(100),title varchar(100))");
+    $db->exec("INSERT INTO layout_group_properties VALUES ('LBF_MHINTAKE','',1),('LBF_ALT','',1)");
+    $db->exec("INSERT INTO layout_options VALUES ('LBF_MHINTAKE','reason_visit','Concern',3,'',1,1),('LBF_ALT','presenting','Alternate concern',3,'',1,1)");
+    $db->exec("INSERT INTO forms (encounter,pid,form_id,formdir,date,deleted) VALUES (20,10,201,'LBF_MHINTAKE','2026-01-01',0),(20,10,202,'LBF_MHINTAKE','2026-01-02',0),(20,10,203,'LBF_MHINTAKE','2026-01-03',1),(20,10,204,'LBF_ALT','2026-01-04',0)");
+    $db->exec("INSERT INTO lbf_data VALUES (201,'reason_visit','Old concern'),(202,'reason_visit','Latest concern'),(203,'reason_visit','Deleted concern'),(204,'presenting','Alternate concern')");
+    $realAssessment = new \OpenEMR\Modules\TreatmentPlanner\Services\AssessmentService();
+    $structured = $realAssessment->extractAssessmentData(10,20);
+    verify($structured['presenting_problem']['chief_complaint'] === 'Latest concern' && $realAssessment->getLastSnapshot()['source']['form_id'] === 202, 'Sources must come from the latest nondeleted instance, without mixing older forms');
+    $profileService = new \OpenEMR\Modules\TreatmentPlanner\Services\AssessmentProfileService();
+    $profileService->save('LBF_ALT','{"reason_visit":"presenting"}');
+    $alternate = $realAssessment->extractAssessmentData(10,20);
+    verify($alternate['presenting_problem']['chief_complaint'] === 'Alternate concern' && $realAssessment->getLastSnapshot()['sources'][0]['source_field'] === 'presenting', 'Alternate forms must retain their mapped field attribution');
+    try { $profileService->save('LBF_ALT','{"reason_visit":"missing_field"}'); throw new LogicException('Missing mapping source accepted'); }
+    catch (\OpenEMR\Modules\TreatmentPlanner\Exceptions\UserFacingException $e) { verify(strpos($e->getMessage(),'missing or inactive')!==false,'Profiles must reject missing source fields'); }
     unlink($fixture . '/library/forms.inc.php'); rmdir($fixture . '/library'); rmdir($fixture);
     echo $GLOBALS['checks'] . " database integration checks passed\n";
 }

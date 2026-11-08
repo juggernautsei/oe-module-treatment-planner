@@ -21,6 +21,7 @@ namespace {
         public function isApiKeyConfigured(): bool { return $this->configured; }
     }
     class FlowTreatment extends \OpenEMR\Modules\TreatmentPlanner\Services\TreatmentService {
+        public function previewAssessment(int $patientId, int $encounterId): array { return []; }
         public int $calls = 0;
         public string $receivedKey = '';
         public function __construct() {}

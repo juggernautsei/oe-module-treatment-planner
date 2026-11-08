@@ -52,6 +52,8 @@ const MODULE_ROUTE = "/interface/modules/custom_modules/oe-module-treatment-plan
 
 $router
     ->get($webroot . MODULE_ROUTE . "/dashboard", [Dashboard::class, 'indexAction'])
+    ->get($webroot . MODULE_ROUTE . "/treatment/progress", [\OpenEMR\Modules\TreatmentPlanner\Controllers\ProgressController::class, 'indexAction'])
+    ->post($webroot . MODULE_ROUTE . "/treatment/progress", [\OpenEMR\Modules\TreatmentPlanner\Controllers\ProgressController::class, 'indexAction'])
     ->get($webroot . MODULE_ROUTE . "/treatment/list", [TreatmentController::class, 'listAction'])
     ->get($webroot . MODULE_ROUTE . "/treatment/history", [TreatmentController::class, 'historyAction'])
     ->get($webroot . MODULE_ROUTE . "/treatment/view", [TreatmentController::class, 'viewAction'])

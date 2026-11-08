@@ -246,3 +246,7 @@ Read [the edit log](../EDITS-1.0.7.md) for the model-access diagnosis, successfu
 ## Latest corrections: version 1.0.8
 
 See [the edit log](../EDITS-1.0.8.md) for structured plan display and print styling. The original plan text is preserved and no database migration is required.
+
+## Latest improvements: version 1.1.0
+
+See [the edit log](../EDITS-1.1.0.md), [assessment profiles](../docs/ASSESSMENT-PROFILES.md), [review and progress](../docs/CLINICIAN-REVIEW-AND-PROGRESS.md), and [compatibility notes](../docs/COMPATIBILITY.md). This release adds source evidence, gap review, explicit clinician acknowledgements and follow-up tracking. Apply database upgrade 6. Readiness, generation, source warnings and transition to review were checked in the browser; full approval/progress browser validation remains pending.
