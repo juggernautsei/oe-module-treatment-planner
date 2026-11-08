@@ -23,4 +23,13 @@ if (strpos($edit, '0 years') === false) { throw new RuntimeException('Zero age m
 $editContext['plan']['status'] = 'finalized'; $editContext['read_only'] = true;
 $readOnly = $twig->render('treatment/edit.html.twig', $editContext);
 if (strpos($readOnly, 'readonly') === false || strpos($readOnly, 'name="submit_edit"') !== false) { throw new RuntimeException('Finalized recovery must not expose a save action'); }
-echo "10 template integration checks passed\n";
+$viewPlan = $plan; $viewPlan['status'] = 'finalized'; $viewPlan['encounter_id'] = 20;
+$viewPlan['generation_metadata'] = ['model' => '<script>metadata payload</script>', 'prompt_version' => 'v1', 'total_tokens' => 15];
+$viewContext = ['plan' => $viewPlan, 'error' => '', 'statuses' => ['finalized' => 'Finalized'], 'csrf_token_form' => 'valid', 'missing_sections' => ['Objectives'], 'webroot' => '', 'module_name' => 'oe-module-treatment-planner'];
+$view = $twig->render('treatment/view.html.twig', $viewContext);
+if (strpos($view, '&lt;script&gt;metadata payload&lt;/script&gt;') === false || strpos($view, '<script>metadata payload') !== false) { throw new RuntimeException('Generation metadata must be escaped'); }
+if (strpos($view, 'Expected sections not detected') === false || strpos($view, 'This finalized record remains read-only.') === false) { throw new RuntimeException('Existing finalized records must remain read-only while showing structure warnings'); }
+$viewContext['plan']['generation_metadata'] = null;
+$legacyView = $twig->render('treatment/view.html.twig', $viewContext);
+if (strpos($legacyView, 'Generation metadata was not recorded for this plan.') === false) { throw new RuntimeException('Legacy missing metadata must be explicit'); }
+echo "13 template integration checks passed\n";

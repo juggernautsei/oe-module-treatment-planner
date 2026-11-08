@@ -32,6 +32,8 @@
 
 use OpenEMR\Core\AbstractModuleActionListener;
 require_once __DIR__ . '/src/Services/SchemaService.php';
+require_once __DIR__ . '/src/Services/ErrorService.php';
+require_once __DIR__ . '/src/Exceptions/UserFacingException.php';
 use OpenEMR\Modules\TreatmentPlanner\Services\SchemaService;
 
 /* Allows maintenance of background tasks depending on Module Manager action. */
@@ -57,8 +59,7 @@ class ModuleManagerListener extends AbstractModuleActionListener
         try {
             return $this->$methodName($modId, $currentActionStatus);
         } catch (\Throwable $e) {
-            error_log('Treatment Planner module action failed: ' . $e->getMessage());
-            return 'Treatment Planner action failed. Check the server log and database permissions, then retry.';
+            return 'Treatment Planner action failed. ' . \OpenEMR\Modules\TreatmentPlanner\Services\ErrorService::publicMessage($e, 'module_action');
         }
     }
 

@@ -52,6 +52,11 @@
                 </div>
             {% endif %}
             
+            {% if missing_sections|default([]) %}
+            <div class="alert alert-warning">{{ "Expected sections not detected"|xlt }}: {{ missing_sections|join(', ')|text }}.
+              {% if plan.status == 'finalized' %}{{ "This finalized record remains read-only."|xlt }}{% else %}{{ "Complete these sections before approval or finalization."|xlt }}{% endif %}
+              {{ "This checks structure only; clinician review is still required."|xlt }}</div>
+            {% endif %}
             {% if plan %}
                 <div class="card mb-3">
                     <div class="card-header d-flex justify-content-between align-items-center">
@@ -76,6 +81,12 @@
                             </div>
                         </div>
                         
+                        <details class="mb-3"><summary>{{ "Original generation details"|xlt }}</summary>
+                        {% if plan.generation_metadata|default(null) %}
+                          {% set generation_labels = {'model': 'Model', 'requested_model': 'Requested model', 'prompt_version': 'Prompt version', 'generated_at': 'Generated at (UTC)', 'prompt_tokens': 'Input tokens', 'completion_tokens': 'Output tokens', 'total_tokens': 'Total tokens'} %}
+                          <dl>{% for key, label in generation_labels %}{% if plan.generation_metadata[key] is defined %}<dt>{{ label|xlt }}</dt><dd>{{ plan.generation_metadata[key]|text }}</dd>{% endif %}{% endfor %}</dl>
+                        {% else %}<p>{{ "Generation metadata was not recorded for this plan."|xlt }}</p>{% endif %}
+                        </details>
                         <div class="treatment-content mb-4">
                             {{ plan.content|nl2br }}
                         </div>

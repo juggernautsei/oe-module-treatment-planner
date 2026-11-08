@@ -21,8 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $message = $count > 0 ? xl('Default templates created successfully.') : xl('Templates already exist. No changes were made.');
     } catch (Throwable $e) {
         http_response_code(400);
-        error_log('Treatment Planner template initialization failed: ' . $e->getMessage());
-        $error = xl('Initialization failed. Check administrator permissions, the form token, the database upgrade, and the server log.');
+        $error = \OpenEMR\Modules\TreatmentPlanner\Services\ErrorService::publicMessage($e, 'initialize_templates');
     }
 } elseif ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     http_response_code(405);

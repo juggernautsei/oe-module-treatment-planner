@@ -34,9 +34,9 @@ if (!hasTreatmentPlannerAccess()) {
 
 try {
     \OpenEMR\Modules\TreatmentPlanner\Services\SchemaService::assertReady();
-} catch (\RuntimeException $e) {
+} catch (\Throwable $e) {
     http_response_code(503);
-    echo '<div class="alert alert-warning">' . text($e->getMessage()) . '</div>';
+    echo '<div class="alert alert-warning">' . text(\OpenEMR\Modules\TreatmentPlanner\Services\ErrorService::publicMessage($e, 'module_route')) . '</div>';
     exit;
 }
 
@@ -62,5 +62,9 @@ $router
 try {
     echo $router->resolve($_SERVER['REQUEST_URI'], strtolower($_SERVER['REQUEST_METHOD']));
 } catch (RouteNotFoundException $e) {
-    echo $e->getMessage();
+    http_response_code(404);
+    echo text(\OpenEMR\Modules\TreatmentPlanner\Services\ErrorService::publicMessage($e, 'module_route'));
+} catch (\Throwable $e) {
+    http_response_code(500);
+    echo text(\OpenEMR\Modules\TreatmentPlanner\Services\ErrorService::publicMessage($e, 'module_route'));
 }

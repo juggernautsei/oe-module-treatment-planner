@@ -67,22 +67,28 @@ namespace {
     $db->exec('CREATE TABLE forms (id int AUTO_INCREMENT PRIMARY KEY, encounter bigint, pid bigint, form_id int, formdir varchar(100))');
     $db->exec("INSERT INTO module_treatment_planner_plans (patient_id, encounter_id, provider_id, content, sections) VALUES (10, 20, 7, 'Original', '{}')");
     $id = (int)$db->lastInsertId();
+    $db->exec('ALTER TABLE module_treatment_planner_plans DROP COLUMN generation_metadata');
+    try { SchemaService::assertReady(); throw new LogicException('Missing provenance column accepted'); }
+    catch (\OpenEMR\Modules\TreatmentPlanner\Exceptions\UserFacingException $e) { verify(strpos($e->getMessage(), 'upgrade required') !== false, 'Readiness must detect the missing provenance column'); }
+    SchemaService::migrate(); SchemaService::migrate();
+    verify($db->query('SELECT content FROM module_treatment_planner_plans WHERE id = ' . $id)->fetchColumn() === 'Original', 'Repeated provenance upgrades must preserve existing records');
     $_SESSION = ['authUser' => 'test-clinician', 'authUserID' => 7, 'pid' => 10];
     $service = (new ReflectionClass(TreatmentService::class))->newInstanceWithoutConstructor();
     $property = new ReflectionProperty($service, 'openAIService');
     $property->setValue($service, (new ReflectionClass(OpenAIService::class))->newInstanceWithoutConstructor());
-    $service->updateTreatmentPlan($id, ['expected_version' => 1, 'content' => 'Changed'], 7);
+    $completePlan = "Diagnosis:\nExample diagnosis\nTreatment Goals:\nExample goal\nObjectives:\nExample objective\nInterventions:\nExample intervention\nTimeline:\nExample timeline\nCriteria for Success:\nExample measure";
+    $service->updateTreatmentPlan($id, ['expected_version' => 1, 'content' => $completePlan], 7);
     verify($service->getRevision($id, 1)['content'] === 'Original', 'Database snapshot must retain prior content');
     verify($service->getTreatmentPlan($id)['version'] == 2, 'Database update must advance the version');
     $history = $service->getRevisionHistory($id);
     verify($history['total'] === 1 && $history['revisions'][0]['archived_by_name'] === 'Test Clinician', 'History query must return actor attribution');
     try { $service->updateTreatmentPlan($id, ['expected_version' => 1, 'content' => 'Stale'], 7); throw new LogicException('Stale update accepted'); }
     catch (Exception $e) { verify(strpos($e->getMessage(), 'Reload') !== false, 'Stale update must be rejected'); }
-    verify($service->getTreatmentPlan($id)['content'] === 'Changed', 'Rejected edit must preserve saved content');
+    verify($service->getTreatmentPlan($id)['content'] === $completePlan, 'Rejected edit must preserve saved content');
     // Force a real unique-key failure during archiving; no plan update may commit.
     $db->exec("INSERT INTO module_treatment_planner_revisions (plan_id, version, content, status, provider_id, date_updated, changed_by, date_archived) VALUES ($id, 2, 'Collision', 'draft', 7, NOW(), 7, NOW())");
     try { $service->updateTreatmentPlan($id, ['expected_version' => 2, 'content' => 'Must roll back'], 7); throw new LogicException('Archive collision accepted'); }
-    catch (PDOException $e) { verify($service->getTreatmentPlan($id)['content'] === 'Changed', 'Archive failure must roll back atomically'); }
+    catch (PDOException $e) { verify($service->getTreatmentPlan($id)['content'] === $completePlan, 'Archive failure must roll back atomically'); }
     $db->exec("DELETE FROM module_treatment_planner_revisions WHERE plan_id = $id AND version = 2");
     $service->changeStatus($id, 'pending_review', 7, 2);
     $service->changeStatus($id, 'approved', 7, 3);
@@ -209,6 +215,23 @@ namespace {
     verify($service->getTreatmentPlan($queueFailurePlan['id'])['content'] === 'Output retained despite usage failure', 'Queue unavailability must not discard successful output');
     verify($queueFailurePlan['metadata']['usage_recorded'] === false && $retry->pendingCount() === 0, 'Unavailable queue must report unrecorded usage without pretending it was queued');
     $db->exec('DROP TRIGGER tp_queue_guard');
+    $provenance = $service->getTreatmentPlan($queueFailurePlan['id'])['generation_metadata'];
+    verify($provenance['model'] === 'priced-model' && $provenance['prompt_version'] === \OpenEMR\Modules\TreatmentPlanner\Services\PromptGenerationService::VERSION, 'Generated model and prompt version must survive database storage');
+    verify($provenance['prompt_tokens'] === 100 && !isset($provenance['options']), 'Stored provenance must retain token counts without options or clinical payloads');
+    verify($service->getTreatmentPlan($id)['generation_metadata'] === null, 'Older records must not receive fabricated generation metadata');
+    $service->updateTreatmentPlan($queueFailurePlan['id'], ['content' => $completePlan, 'expected_version' => 1], 7);
+    verify($service->getTreatmentPlan($queueFailurePlan['id'])['generation_metadata'] === $provenance, 'Clinician edits must preserve original generation provenance');
+    $db->exec("INSERT INTO module_treatment_planner_plans (patient_id, encounter_id, provider_id, content, sections) VALUES (10, 20, 7, 'Incomplete draft', '{}')");
+    $incompleteId = (int)$db->lastInsertId();
+    $service->changeStatus($incompleteId, 'pending_review', 7, 1);
+    try { $service->changeStatus($incompleteId, 'approved', 7, 2); throw new LogicException('Incomplete approval accepted'); }
+    catch (\OpenEMR\Modules\TreatmentPlanner\Exceptions\UserFacingException $e) { verify(strpos($e->getMessage(), 'complete these sections') !== false, 'Database workflow must block incomplete approval'); }
+    verify($service->getTreatmentPlan($incompleteId)['version'] == 2 && $service->getTreatmentPlan($incompleteId)['status'] === 'pending_review', 'Rejected structural approval must not alter status or version');
+    $service->updateTreatmentPlan($incompleteId, ['content' => $completePlan, 'status' => 'draft', 'expected_version' => 2], 7);
+    $service->changeStatus($incompleteId, 'pending_review', 7, 3);
+    $service->changeStatus($incompleteId, 'approved', 7, 4);
+    $service->changeStatus($incompleteId, 'finalized', 7, 5);
+    verify($service->getTreatmentPlan($incompleteId)['status'] === 'finalized', 'Completing the required sections must allow the review workflow');
     unlink($fixture . '/library/forms.inc.php'); rmdir($fixture . '/library'); rmdir($fixture);
     echo $GLOBALS['checks'] . " database integration checks passed\n";
 }

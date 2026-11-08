@@ -53,3 +53,8 @@ See [the 1.0.3 edit log](EDITS-1.0.3.md). Assessment prompts retain the previous
 ## Version 1.0.4 follow-up
 
 See [the 1.0.4 edit log](EDITS-1.0.4.md). Generated output is preserved during usage logging failures, with queued metadata retries available to administrators. Save errors preserve submitted edits and their original version token. Encounter linking is required for successful plan creation. Age displays use server-side date arithmetic. Run the database upgrade to add the seventh module table, the usage retry queue.
+
+
+## Version 1.0.5 follow-up
+
+See [the 1.0.5 edit log](EDITS-1.0.5.md). Unexpected errors use sanitized diagnostics and reference IDs; explicit validation messages remain actionable. New plans retain original model, prompt version, UTC generation time and token metadata without copying prompts or notes. Incomplete drafts remain savable, while approval/finalization require all six expected nonempty sections. Controller/service dependencies are injectable, with default wiring centralized for the existing router. Run the database upgrade to add the nullable provenance column; older records remain explicitly unknown.

@@ -40,6 +40,7 @@ namespace {
     function sqlQuery($sql, $params = []) {
         if (strpos($sql, 'GET_LOCK') !== false) { return ['acquired' => $GLOBALS['testLockAcquired'] ?? 1]; }
         if (strpos($sql, 'information_schema.TABLES') !== false) { return ['table_count' => $GLOBALS['testTableCount'] ?? 7]; }
+        if (strpos($sql, 'generation_metadata') !== false && strpos($sql, 'information_schema.COLUMNS') !== false) { return ['metadata_count' => 1]; }
         if (strpos($sql, 'information_schema.COLUMNS') !== false) { return ['IS_NULLABLE' => 'YES']; }
         if (strpos($sql, 'FROM list_options') !== false) { return $GLOBALS['testLists'][$params[0]][$params[1]] ?? []; }
         return ['sensitivity' => $GLOBALS['testSensitivity'] ?? 'normal'];
@@ -118,6 +119,7 @@ namespace {
     rejects(fn() => $service->updateTreatmentPlan(1, ['expected_version' => 2, 'content' => 'New plan'], 7), 'archive failed');
     check(end(QueryUtils::$queries)[0] === 'ROLLBACK' && count(QueryUtils::$queries) === 3, 'Archive failure must prevent update');
     resetState('approved');
+    QueryUtils::$plan['content'] = "Diagnosis:\nExample diagnosis\nTreatment Goals:\nExample goal\nObjectives:\nExample objective\nInterventions:\nExample intervention\nTimeline:\nExample timeline\nCriteria for Success:\nExample measure";
     check($service->changeStatus(1, 'finalized', 7, 2), 'Approved plans may finalize');
     $parse = new ReflectionMethod($ai, 'parseResponse');
     if (PHP_VERSION_ID < 80100) { $parse->setAccessible(true); }

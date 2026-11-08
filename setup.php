@@ -44,7 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $newTemperature = ConfigService::validateTemperature($_POST['temperature'] ?? $temperature);
             $newModel = is_string($_POST['model'] ?? null) ? trim($_POST['model']) : $model;
             $newKey = is_string($_POST['api_key'] ?? null) ? trim($_POST['api_key']) : '';
-            if ($newModel === '') { throw new InvalidArgumentException('Select a model.'); }
+            if ($newModel === '') { throw new \OpenEMR\Modules\TreatmentPlanner\Exceptions\UserFacingException('Select a model.'); }
             if ($newKey !== '' && !$configService->saveApiKey($newKey)) { throw new RuntimeException('Could not save API key.'); }
             if (!$configService->saveModel($newModel) || !$configService->saveTemperature($newTemperature)) {
                 throw new RuntimeException('Could not save settings.');
@@ -53,11 +53,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $temperature = $newTemperature;
             if (isset($_POST['test_connection'])) { $testConnectionResult = $configService->testApiConnection(); }
             else { $successMessage = xl('Configuration saved successfully'); }
-        } catch (InvalidArgumentException $e) {
+        } catch (\OpenEMR\Modules\TreatmentPlanner\Exceptions\UserFacingException $e) {
             $errorMessage = xl($e->getMessage());
         } catch (Throwable $e) {
-            error_log('Treatment Planner configuration save failed.');
-            $errorMessage = xl('Unable to save settings. Check the server log and database configuration.');
+            $errorMessage = \OpenEMR\Modules\TreatmentPlanner\Services\ErrorService::publicMessage($e, 'save_config');
         }
     }
 }

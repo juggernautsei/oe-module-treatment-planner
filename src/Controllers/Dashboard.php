@@ -74,7 +74,7 @@ class Dashboard
             }
             return $stats;
         } catch (Exception $e) {
-            error_log("Dashboard: Error fetching stats - " . $e->getMessage());
+            error_log("Dashboard: Error fetching stats - " . \OpenEMR\Modules\TreatmentPlanner\Services\ErrorService::publicMessage($e, 'module_boundary'));
             return [
                 'total_plans' => 0,
                 'active_plans' => 0,
@@ -132,7 +132,7 @@ class Dashboard
 
             return $plans;
         } catch (Exception $e) {
-            error_log("Dashboard: Error fetching recent plans - " . $e->getMessage());
+            error_log("Dashboard: Error fetching recent plans - " . \OpenEMR\Modules\TreatmentPlanner\Services\ErrorService::publicMessage($e, 'module_boundary'));
             return [];
         }
     }

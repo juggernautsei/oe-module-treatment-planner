@@ -19,6 +19,7 @@ jobs:
       - run: php tests/review3.php
       - run: php tests/create-flow.php
       - run: php tests/review4.php
+      - run: php tests/review5.php
   integration:
     runs-on: ubuntu-latest
     services:

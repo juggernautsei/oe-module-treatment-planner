@@ -15,7 +15,7 @@ namespace OpenEMR\Modules\TreatmentPlanner\Exceptions;
 /**
  * TODO: build a twig page for 404
  */
-class RouteNotFoundException extends \Exception
+class RouteNotFoundException extends UserFacingException
 {
     protected  $message = '404 Not Found';
 }

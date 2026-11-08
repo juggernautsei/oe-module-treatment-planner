@@ -12,6 +12,7 @@
  */
 
 namespace OpenEMR\Modules\TreatmentPlanner\Services;
+use OpenEMR\Modules\TreatmentPlanner\Exceptions\UserFacingException;
 
 use Exception;
 
@@ -32,7 +33,7 @@ class AssessmentService
     public function extractAssessmentData(int $pid, int $encounter): array
     {
         if ($pid <= 0 || $encounter <= 0) {
-            throw new Exception("Invalid patient ID or encounter ID");
+            throw new UserFacingException("Invalid patient ID or encounter ID");
         }
 
         try {
@@ -40,7 +41,7 @@ class AssessmentService
             $formData = $this->getFormData($pid, $encounter);
             
             if (empty($formData)) {
-                throw new Exception("No LBF_MHINTAKE assessment data found for this encounter. Please ensure the assessment form has been completed and saved.");
+                throw new UserFacingException("No LBF_MHINTAKE assessment data found for this encounter. Please ensure the assessment form has been completed and saved.");
             }
 
             // Structure the data for AI processing
@@ -61,8 +62,7 @@ class AssessmentService
             return $structuredData;
 
         } catch (Exception $e) {
-            error_log("AssessmentService Error: " . $e->getMessage());
-            throw new Exception("Failed to extract assessment data: " . $e->getMessage());
+            throw $e;
         }
     }
 

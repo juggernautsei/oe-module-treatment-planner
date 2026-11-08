@@ -12,6 +12,7 @@
  */
 
 namespace OpenEMR\Modules\TreatmentPlanner\Services;
+use OpenEMR\Modules\TreatmentPlanner\Exceptions\UserFacingException;
 
 use OpenEMR\Common\Database\QueryUtils;
 use OpenEMR\Services\PatientService;
@@ -29,6 +30,8 @@ require_once($GLOBALS['fileroot'] . '/library/forms.inc.php');
  */
 class TreatmentService
 {
+    private ?GenerationRequestService $requestService = null;
+    private ?PlanStructureService $structureService = null;
     private OpenAIService $openAIService;
     private PatientService $patientService;
     private EncounterService $encounterService;
@@ -50,12 +53,17 @@ class TreatmentService
     public function __construct(
         OpenAIService $openAIService,
         PatientService $patientService,
-        EncounterService $encounterService
+        EncounterService $encounterService,
+        ?AssessmentService $assessmentService = null,
+        ?GenerationRequestService $requestService = null,
+        ?PlanStructureService $structureService = null
     ) {
         $this->openAIService = $openAIService;
         $this->patientService = $patientService;
         $this->encounterService = $encounterService;
-        $this->assessmentService = new AssessmentService();
+        $this->assessmentService = $assessmentService ?? ModuleServiceFactory::assessment();
+        $this->requestService = $requestService ?? ModuleServiceFactory::requests();
+        $this->structureService = $structureService ?? ModuleServiceFactory::structure();
     }
     
     /**
@@ -80,17 +88,17 @@ class TreatmentService
     ): array {
         AccessService::assertPatient($patientId, true, $encounterId);
         if ($encounterId <= 0) {
-            throw new Exception('Select an encounter before generating a plan.');
+            throw new UserFacingException('Select an encounter before generating a plan.');
         }
         if (mb_strlen($observations) > 20000) {
-            throw new Exception('Clinical observations must be 20000 characters or fewer.');
+            throw new UserFacingException('Clinical observations must be 20000 characters or fewer.');
         }
         SchemaService::assertReady();
-        $requests = new GenerationRequestService();
+        $requests = $this->requestService ?? ModuleServiceFactory::requests();
         $existingId = $requests->begin($requestKey, $patientId, $encounterId, $providerId, $observations);
         if ($existingId !== null) {
             $existing = $this->getTreatmentPlan($existingId);
-            if (!$existing) { throw new Exception('The previously generated plan is unavailable. Contact an administrator.'); }
+            if (!$existing) { throw new UserFacingException('The previously generated plan is unavailable. Contact an administrator.'); }
             return $existing;
         }
         try {
@@ -98,7 +106,7 @@ class TreatmentService
             $planData = $this->openAIService->generateTreatmentPlan($assessmentData, $observations, $options, $providerId);
             QueryUtils::sqlStatementThrowException('START TRANSACTION');
             try {
-                $planId = $this->storeTreatmentPlan($patientId, $encounterId, $planData['content'], $planData['sections'], $providerId);
+                $planId = $this->storeTreatmentPlan($patientId, $encounterId, $planData['content'], $planData['sections'], $providerId, $planData['metadata'] ?? []);
                 $requests->complete($requestKey, $planId);
                 QueryUtils::sqlStatementThrowException('COMMIT');
             } catch (\Throwable $e) {
@@ -134,7 +142,8 @@ class TreatmentService
         int $encounterId,
         string $content,
         array $sections,
-        int $providerId
+        int $providerId,
+        array $metadata = []
     ): int {
         // Prepare JSON for sections
         $sectionsJson = json_encode($sections);
@@ -146,8 +155,8 @@ class TreatmentService
         // Store the plan
         $sql = "INSERT INTO `module_treatment_planner_plans` 
                 (`patient_id`, `encounter_id`, `provider_id`, `content`, `sections`,
-                 `version`, `status`, `date_created`, `date_updated`) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())";
+                 `version`, `status`, `date_created`, `date_updated`, `generation_metadata`)
+                VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), ?)";
         
         $params = [
             $patientId,
@@ -156,22 +165,23 @@ class TreatmentService
             $content,
             $sectionsJson,
             $version,
-            $status
+            $status,
+            GenerationMetadataService::encode($metadata)
         ];
         
         $planId = QueryUtils::sqlInsert($sql, $params);
         
         if (!$planId) {
-            throw new Exception(xlt('Failed to store treatment plan'));
+            throw new UserFacingException(xlt('Failed to store treatment plan'));
         }
         
         // Required part of the surrounding transaction: never report a detached plan as success.
         try {
             $formId = addForm($encounterId, 'Treatment Plan', $planId, 'treatment_planner', $patientId,
                 '1', 'NOW()', $_SESSION['authUser'] ?? '', $_SESSION['authProvider'] ?? '');
-            if (!$formId) { throw new Exception('Encounter form registration returned no identifier.'); }
+            if (!$formId) { throw new UserFacingException('Encounter form registration returned no identifier.'); }
         } catch (\Throwable $e) {
-            throw new Exception('Unable to link the treatment plan to the encounter. The plan was not saved; check the server log before starting another generation.', 0, $e);
+            throw new UserFacingException('Unable to link the treatment plan to the encounter. The plan was not saved; check the server log before starting another generation.', 0, $e);
         }
 
         return $planId;
@@ -197,17 +207,17 @@ class TreatmentService
                 'SELECT * FROM module_treatment_planner_plans WHERE id = ? FOR UPDATE', [$planId]
             );
             if (!$current) {
-                throw new Exception('Treatment plan not found');
+                throw new UserFacingException('Treatment plan not found');
             }
             AccessService::assertPatient((int)$current['patient_id'], true, (int)$current['encounter_id']);
             if ($providerId !== (int)($_SESSION['authUserID'] ?? 0) || $providerId <= 0) {
-                throw new Exception('Invalid author');
+                throw new UserFacingException('Invalid author');
             }
             if ((int)($data['expected_version'] ?? 0) !== (int)$current['version']) {
-                throw new Exception('This plan changed. Reload it before saving.');
+                throw new UserFacingException('This plan changed. Reload it before saving.');
             }
             if ($current['status'] === self::STATUS_FINALIZED) {
-                throw new Exception('Finalized plans are read-only.');
+                throw new UserFacingException('Finalized plans are read-only.');
             }
             $content = $data['content'] ?? $current['content'];
             $status = $data['status'] ?? $current['status'];
@@ -218,19 +228,22 @@ class TreatmentService
                 self::STATUS_APPROVED => [self::STATUS_DRAFT, self::STATUS_PENDING_REVIEW, self::STATUS_FINALIZED]
             ];
             if ($status !== $current['status'] && !in_array($status, $transitions[$current['status']] ?? [], true)) {
-                throw new Exception('Invalid treatment plan status transition.');
+                throw new UserFacingException('Invalid treatment plan status transition.');
             }
             if (in_array($status, [self::STATUS_APPROVED, self::STATUS_FINALIZED], true)) {
                 AccessService::assertReviewer();
                 if ($changed) {
-                    throw new Exception('Save content changes as a draft before approval.');
+                    throw new UserFacingException('Save content changes as a draft before approval.');
                 }
             }
+            if (in_array($status, [self::STATUS_APPROVED, self::STATUS_FINALIZED], true)) {
+                ($this->structureService ?? ModuleServiceFactory::structure())->assertComplete($content);
+            }
             if ($changed && $status !== self::STATUS_DRAFT) {
-                throw new Exception('Content changes must return the plan to draft.');
+                throw new UserFacingException('Content changes must return the plan to draft.');
             }
             if (trim(strip_tags($content)) === '') {
-                throw new Exception('Treatment plan content cannot be empty.');
+                throw new UserFacingException('Treatment plan content cannot be empty.');
             }
             // Save the previous state, including original attribution, before overwriting.
             QueryUtils::sqlStatementThrowException(
@@ -276,6 +289,7 @@ class TreatmentService
         
         if ($result) {
             AccessService::assertPatient((int)$result['patient_id'], false, (int)$result['encounter_id']);
+            $result['generation_metadata'] = json_decode($result['generation_metadata'] ?? 'null', true);
             $result['age'] = PatientAgeService::calculate($result['DOB'] ?? null);
             // Decode the sections JSON
             $result['sections'] = json_decode($result['sections'], true);
@@ -326,7 +340,7 @@ class TreatmentService
     public function getRevisionHistory(int $planId, int $page = 1): array
     {
         $plan = $this->getTreatmentPlan($planId);
-        if (!$plan) { throw new Exception('Treatment plan not found'); }
+        if (!$plan) { throw new UserFacingException('Treatment plan not found'); }
         SchemaService::assertReady();
         $page = max(1, $page);
         $count = QueryUtils::querySingleRow('SELECT COUNT(*) AS total FROM module_treatment_planner_revisions WHERE plan_id = ?', [$planId]);
@@ -343,10 +357,10 @@ class TreatmentService
     public function getRevision(int $planId, int $version): array
     {
         $plan = $this->getTreatmentPlan($planId);
-        if (!$plan) { throw new Exception('Treatment plan not found'); }
+        if (!$plan) { throw new UserFacingException('Treatment plan not found'); }
         if ($version === (int)$plan['version']) { return $plan; }
         $revision = QueryUtils::querySingleRow('SELECT * FROM module_treatment_planner_revisions WHERE plan_id = ? AND version = ?', [$planId, $version]);
-        if (!$revision) { throw new Exception('Revision not found for this treatment plan'); }
+        if (!$revision) { throw new UserFacingException('Revision not found for this treatment plan'); }
         return $revision;
     }
 

@@ -229,3 +229,8 @@ Read [the detailed edit log](../EDITS-1.0.3.md) and [the consolidated improvemen
 ## Latest corrections: version 1.0.4
 
 See [the edit log](../EDITS-1.0.4.md) for usage-failure recovery, preserved unsaved edits, transactional encounter linking, and corrected age displays. The [consolidated overview](../IMPROVEMENTS.md) includes these changes. Apply the database upgrade before use.
+
+
+## Latest corrections: version 1.0.5
+
+Read [the edit log](../EDITS-1.0.5.md) for safe errors, stored generation details, structural checks before approval, and injectable service wiring. The [consolidated overview](../IMPROVEMENTS.md) includes these changes. Upgrade the database before use; existing records retain unknown generation metadata.

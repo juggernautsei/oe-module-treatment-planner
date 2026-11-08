@@ -23,6 +23,7 @@ use OpenEMR\Modules\TreatmentPlanner\Services\PromptGenerationService;
  */
 class OpenAIService
 {
+    private ?PlanSectionParser $sectionParser = null;
     private ConfigService $configService;
     private ?UsageService $usageService;
     private PromptGenerationService $promptGenerationService;
@@ -34,8 +35,9 @@ class OpenAIService
      * @param UsageService|null $usageService Optional service for tracking usage
      * @param PromptGenerationService $promptGenerationService Service for generating prompts
      */
-    public function __construct(ConfigService $configService, ?UsageService $usageService, PromptGenerationService $promptGenerationService)
+    public function __construct(ConfigService $configService, ?UsageService $usageService, PromptGenerationService $promptGenerationService, ?PlanSectionParser $sectionParser = null)
     {
+        $this->sectionParser = $sectionParser ?? ModuleServiceFactory::sectionParser();
         $this->configService = $configService;
         $this->usageService = $usageService;
         $this->promptGenerationService = $promptGenerationService;
@@ -109,7 +111,10 @@ class OpenAIService
 
         // Add metadata to the result
         $planData['metadata'] = [
-            'model' => $model,
+            'model' => is_string($response['model'] ?? null) ? $response['model'] : $model,
+            'requested_model' => $model,
+            'prompt_version' => $this->promptGenerationService->getVersion(),
+            'generated_at' => gmdate('Y-m-d\TH:i:s\Z'),
             'prompt_tokens' => $promptTokens,
             'completion_tokens' => $completionTokens,
             'total_tokens' => $totalTokens,
@@ -187,7 +192,7 @@ class OpenAIService
                 $responseData = json_decode($response, true);
                 $errorMessage = $responseData['error']['message'] ?? 'Unknown API error';
             }
-            throw new Exception(xlt('OpenAI API Error') . ': ' . $errorMessage);
+            throw new Exception(xlt('OpenAI API Error') . ': ' . $errorMessage, $httpCode);
         }
         
         $decoded = json_decode($response, true);
@@ -235,33 +240,7 @@ class OpenAIService
      */
     public function extractSections(string $content): array
     {
-        $content = preg_replace('/<\s*(?:br\b[^>]*|\/p|\/div|\/li|\/h[1-6])\s*>/i', "\n", $content);
-        $content = html_entity_decode(strip_tags($content), ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        $content = str_replace(['**', '__'], '', $content);
-        $names = [
-            'diagnosis' => 'diagnosis|problem statement|clinical impression',
-            'goals' => 'long.term goals|treatment goals',
-            'objectives' => 'short.term objectives|objectives|treatment objectives',
-            'interventions' => 'interventions|strategies|treatment strategies',
-            'timeline' => 'timeline|treatment duration|timeframe',
-            'progress' => 'criteria for success|progress measurement|assessment|evaluation'
-        ];
-        $all = implode('|', $names);
-        $pattern = '/^\h*(?:\#{1,6}\h*)?(?:\d+[.)]\h*)?(' . $all . ')(?:\h*\([^\r\n)]*\))?\h*(?::\h*([^\r\n]*))?\h*\r?$/im';
-        preg_match_all($pattern, $content, $matches, PREG_OFFSET_CAPTURE);
-        $sections = [];
-        foreach ($matches[0] as $i => $heading) {
-            $start = $heading[1] + strlen($heading[0]);
-            $end = $matches[0][$i + 1][1] ?? strlen($content);
-            $text = trim(($matches[2][$i][0] ?? '') . "\n" . substr($content, $start, $end - $start));
-            foreach ($names as $key => $aliases) {
-                if (preg_match('/^(?:' . $aliases . ')$/i', $matches[1][$i][0])) {
-                    $sections[$key] = isset($sections[$key]) ? $sections[$key] . "\n" . $text : $text;
-                    break;
-                }
-            }
-        }
-        return $sections;
+        return ($this->sectionParser ?? ModuleServiceFactory::sectionParser())->extract($content);
     }
 
     /**

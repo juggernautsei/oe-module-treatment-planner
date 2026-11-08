@@ -6,6 +6,7 @@
 php tests/review3.php
 php tests/create-flow.php
 php tests/review4.php
+php tests/review5.php
 ```
 
 The review suite also runs `regression.php` and `followup.php`. It needs no OpenEMR instance, database, API key, or vendor dependencies. PHP 7.4 and later are exercised by CI.
@@ -53,3 +54,6 @@ Version 1.0.3 adds tests for complete assessment-to-prompt propagation, secure i
 
 
 Version 1.0.4 adds tests for usage INSERT/queue failures without output loss, metadata retry idempotency, preserved event timestamp/cost, encounter-link false/exception rollback, submitted-edit recovery, stale-version token preservation, finalized read-only recovery, post-save refresh failures, and birthday/leap-year/invalid DOB handling. In staging, also exercise the administrator-only usage retry page, invalid CSRF, and copied recovery text in the browser.
+
+
+Version 1.0.5 adds redaction/reference-ID and safe-validation tests, controller construction through injection, generation provenance filtering/storage/immutability, repeatable provenance migration, incomplete approval rollback, parser aliases, and escaped metadata/legacy warnings. In staging, verify that an incomplete draft can be saved but not approved, that an old finalized plan stays read-only, that generated details survive edits, and that an unexpected error can be traced by reference without logging clinical text or credentials.

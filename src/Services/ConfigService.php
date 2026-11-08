@@ -12,6 +12,7 @@
  */
 
 namespace OpenEMR\Modules\TreatmentPlanner\Services;
+use OpenEMR\Modules\TreatmentPlanner\Exceptions\UserFacingException;
 
 use OpenEMR\Common\Crypto\CryptoGen;
 use OpenEMR\Common\Database\QueryUtils;
@@ -117,7 +118,7 @@ class ConfigService
     {
         if ((!is_string($value) && !is_float($value) && !is_int($value)) || !is_numeric($value)
             || !is_finite((float)$value) || (float)$value < 0 || (float)$value > 1) {
-            throw new \InvalidArgumentException('Temperature must be a number between 0 and 1.');
+            throw new UserFacingException('Temperature must be a number between 0 and 1.');
         }
         return (float)$value;
     }

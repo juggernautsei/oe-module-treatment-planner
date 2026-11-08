@@ -1,5 +1,6 @@
 <?php
 namespace OpenEMR\Modules\TreatmentPlanner\Services;
+use OpenEMR\Modules\TreatmentPlanner\Exceptions\UserFacingException;
 
 use OpenEMR\Common\Database\QueryUtils;
 use RuntimeException;
@@ -12,16 +13,16 @@ class GenerationRequestService
     public function begin(string $key, int $patientId, int $encounterId, int $providerId, string $observations): ?int
     {
         if (!preg_match('/^[a-f0-9]{64}$/D', $key)) {
-            throw new RuntimeException('Invalid generation request. Reload the create form.');
+            throw new UserFacingException('Invalid generation request. Reload the create form.');
         }
         AccessService::assertPatient($patientId, true, $encounterId);
         if ($providerId <= 0 || $providerId !== (int)($_SESSION['authUserID'] ?? 0)) {
-            throw new RuntimeException('Invalid generation author.');
+            throw new UserFacingException('Invalid generation author.');
         }
         $lockName = 'tp_gen:' . sha1($key);
         $lock = sqlQuery('SELECT GET_LOCK(?, 0) AS acquired', [$lockName]);
         if ((int)($lock['acquired'] ?? 0) !== 1) {
-            throw new RuntimeException('This generation request is already being processed. Check the patient plan list before submitting again.');
+            throw new UserFacingException('This generation request is already being processed. Check the patient plan list before submitting again.');
         }
         try {
             $row = QueryUtils::querySingleRow('SELECT * FROM module_treatment_planner_requests WHERE request_key = ?', [$key]);
@@ -29,10 +30,10 @@ class GenerationRequestService
             if ($row) {
                 if ((int)$row['patient_id'] !== $patientId || (int)$row['encounter_id'] !== $encounterId
                     || (int)$row['provider_id'] !== $providerId || !hash_equals($row['input_hash'], $hash)) {
-                    throw new RuntimeException('Generation request does not match this submission. Reload the create form.');
+                    throw new UserFacingException('Generation request does not match this submission. Reload the create form.');
                 }
                 if ($row['state'] === 'completed' && (int)$row['plan_id'] > 0) { return (int)$row['plan_id']; }
-                throw new RuntimeException('This request was already submitted and may have reached the AI service. Check the plan list; use a new form only if you intend to start another generation.');
+                throw new UserFacingException('This request was already submitted and may have reached the AI service. Check the plan list; use a new form only if you intend to start another generation.');
             }
             QueryUtils::sqlStatementThrowException('INSERT INTO module_treatment_planner_requests
                 (request_key, patient_id, encounter_id, provider_id, input_hash, state, date_created, date_updated)

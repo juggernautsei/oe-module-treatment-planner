@@ -115,7 +115,7 @@ class Bootstrap
                 $event->setDir($modulePath);
                 error_log("Treatment Planner - setDir() successful");
             } catch (Exception $e) {
-                error_log("Treatment Planner - setDir() failed: " . $e->getMessage());
+                error_log("Treatment Planner - setDir() failed: " . \OpenEMR\Modules\TreatmentPlanner\Services\ErrorService::publicMessage($e, 'module_boundary'));
             }
         }
         

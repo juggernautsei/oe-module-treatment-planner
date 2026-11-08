@@ -18,6 +18,11 @@
                 </div>
             {% endif %}
 
+            {% if missing_sections|default([]) %}
+            <div class="alert alert-warning">{{ "Expected sections not detected"|xlt }}: {{ missing_sections|join(', ')|text }}.
+              {% if plan.status == 'finalized' %}{{ "This finalized record remains read-only."|xlt }}{% else %}{{ "Complete these sections before approval or finalization."|xlt }}{% endif %}
+              {{ "This checks structure only; clinician review is still required."|xlt }}</div>
+            {% endif %}
             {% if plan %}
                 <div class="card mb-3">
                     <div class="card-header d-flex justify-content-between align-items-center">

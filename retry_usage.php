@@ -15,7 +15,7 @@ try {
     $service = new UsageRetryService();
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $token = is_string($_POST['csrf_token_form'] ?? null) ? $_POST['csrf_token_form'] : '';
-        if (!CsrfUtils::verifyCsrfToken($token, 'treatment-planner-usage')) { throw new RuntimeException('Invalid form token.'); }
+        if (!CsrfUtils::verifyCsrfToken($token, 'treatment-planner-usage')) { throw new \OpenEMR\Modules\TreatmentPlanner\Exceptions\UserFacingException('Invalid form token.'); }
         $result = $service->retryPending();
         $message = xl('Usage records processed: ') . $result['recorded'];
     } elseif ($_SERVER['REQUEST_METHOD'] !== 'GET') {
@@ -24,7 +24,7 @@ try {
     $pending = $service->pendingCount();
 } catch (Throwable $e) {
     http_response_code(400);
-    $error = xl('Usage retry failed. Check the form token, database upgrade and server log.');
+    $error = \OpenEMR\Modules\TreatmentPlanner\Services\ErrorService::publicMessage($e, 'retry_usage');
 }
 ?>
 <!doctype html><html><head><meta charset="utf-8"><title><?php echo xlt('Retry Usage Recording'); ?></title>

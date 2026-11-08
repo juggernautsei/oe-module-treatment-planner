@@ -20,6 +20,8 @@ use Exception;
  */
 class PromptGenerationService
 {
+    public const VERSION = 'treatment-planner-prompts/1';
+    public function getVersion(): string { return self::VERSION; }
     /**
      * Generate a dynamic prompt based on assessment data and diagnoses
      *

@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS `module_treatment_planner_plans` (
   `provider_id` int(11) NOT NULL,
   `content` text DEFAULT NULL,
   `sections` text DEFAULT NULL,
+  `generation_metadata` text DEFAULT NULL,
   `status` enum('draft','pending_review','approved','finalized') NOT NULL DEFAULT 'draft',
   `version` int(11) NOT NULL DEFAULT 1,
   `date_created` datetime DEFAULT current_timestamp(),
