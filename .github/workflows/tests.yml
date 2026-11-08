@@ -22,6 +22,7 @@ jobs:
       - run: php tests/review5.php
       - run: php tests/session.php native
       - run: php tests/session.php wrapper
+      - run: php tests/api-errors.php
   integration:
     runs-on: ubuntu-latest
     services:

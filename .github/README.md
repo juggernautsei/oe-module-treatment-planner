@@ -238,3 +238,7 @@ Read [the edit log](../EDITS-1.0.5.md) for safe errors, stored generation detail
 ## Latest corrections: version 1.0.6
 
 Read [the edit log](../EDITS-1.0.6.md) for the reproduced OpenEMR 8.5.0 login failure, shared session handling, core CSRF compatibility and browser verification limits. No database migration is required beyond version 1.0.5.
+
+## Latest corrections: version 1.0.7
+
+Read [the edit log](../EDITS-1.0.7.md) for the model-access diagnosis, successful synthetic generation, safe API errors and removal of the missing CKEditor 4 dependency. No new database migration is required.

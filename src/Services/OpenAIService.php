@@ -187,12 +187,7 @@ class OpenAIService
             throw new Exception('AI service connection failed or timed out. Please try again.');
         }
         if ($httpCode !== 200) {
-            $errorMessage = $error;
-            if (!$errorMessage && $response) {
-                $responseData = json_decode($response, true);
-                $errorMessage = $responseData['error']['message'] ?? 'Unknown API error';
-            }
-            throw new Exception(xlt('OpenAI API Error') . ': ' . $errorMessage, $httpCode);
+            throw ApiErrorService::fromResponse((int)$httpCode, (string)$response);
         }
         
         $decoded = json_decode($response, true);

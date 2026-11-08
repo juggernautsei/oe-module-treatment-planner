@@ -62,3 +62,7 @@ See [the 1.0.5 edit log](EDITS-1.0.5.md). Unexpected errors use sanitized diagno
 ## Version 1.0.6: session and CSRF compatibility
 
 See [EDITS-1.0.6.md](EDITS-1.0.6.md). The module now reads the active core session on newer OpenEMR installations, retains the legacy session fallback, and calls the appropriate core CSRF API. The reported create/list login denial was reproduced and fixed on the local OpenEMR 8.5.0 test installation. AI and downstream plan workflows still require live validation.
+
+## Version 1.0.7: model access and create-page notes
+
+See [EDITS-1.0.7.md](EDITS-1.0.7.md). Added accessible model choices, safe actionable API errors and native notes entry without CKEditor 4. A synthetic draft was generated and saved in the local OpenEMR 8.5 test installation.

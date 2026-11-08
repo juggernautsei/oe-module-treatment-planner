@@ -130,6 +130,8 @@ $apiKeyConfigured = $configService->isApiKeyConfigured();
                             <div class="form-group">
                                 <label for="model"><?php echo xlt('OpenAI Model'); ?></label>
                                 <select class="form-control" id="model" name="model">
+                                    <option value="gpt-4o-mini" <?php echo ($model === 'gpt-4o-mini') ? 'selected' : ''; ?>>GPT-4o mini</option>
+                                    <option value="gpt-4o" <?php echo ($model === 'gpt-4o') ? 'selected' : ''; ?>>GPT-4o</option>
                                     <option value="gpt-4" <?php echo ($model === 'gpt-4') ? 'selected' : ''; ?>>GPT-4</option>
                                     <option value="gpt-4-turbo" <?php echo ($model === 'gpt-4-turbo') ? 'selected' : ''; ?>>GPT-4 Turbo</option>
                                     <option value="gpt-3.5-turbo" <?php echo ($model === 'gpt-3.5-turbo') ? 'selected' : ''; ?>>GPT-3.5 Turbo</option>

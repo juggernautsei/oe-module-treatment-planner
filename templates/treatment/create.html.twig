@@ -100,162 +100,77 @@
         </div>
     </div>
 
-    <!-- CKEditor 4 -->
-    <script src="{{ webroot }}/public/assets/ckeditor4/ckeditor.js"></script>
-
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // Initialize CKEditor
-            if (!document.getElementById('observations')) { return; }
-            CKEDITOR.replace('observations', {
-                height: 300,
-                toolbar: [
-                    { name: 'document', items: ['Source', '-', 'NewPage', 'Preview', '-', 'Templates'] },
-                    { name: 'clipboard', items: ['Cut', 'Copy', 'Paste', 'PasteText', 'PasteFromWord', '-', 'Undo', 'Redo'] },
-                    { name: 'editing', items: ['Find', 'Replace', '-', 'SelectAll'] },
-                    '/',
-                    { name: 'basicstyles', items: ['Bold', 'Italic', 'Underline', 'Strike', 'Subscript', 'Superscript', '-', 'RemoveFormat'] },
-                    { name: 'paragraph', items: ['NumberedList', 'BulletedList', '-', 'Outdent', 'Indent', '-', 'Blockquote'] },
-                    { name: 'links', items: ['Link', 'Unlink'] },
-                    '/',
-                    { name: 'styles', items: ['Styles', 'Format', 'Font', 'FontSize'] },
-                    { name: 'colors', items: ['TextColor', 'BGColor'] },
-                    { name: 'tools', items: ['Maximize'] }
-                ],
-                removePlugins: 'elementspath',
-                resize_enabled: true,
-                enterMode: CKEDITOR.ENTER_BR,
-                shiftEnterMode: CKEDITOR.ENTER_P
-            });
-
-            // Wait for CKEditor to be ready
-            CKEDITOR.on('instanceReady', function(evt) {
-                const editor = evt.editor;
-
-                // Show voice controls
-                document.getElementById('voice-controls').style.display = 'block';
-
-                // Get voice control buttons
-                const voiceButton = document.getElementById('voice-button');
-                const aiButton = document.getElementById('ai-button');
-
-                // Voice recognition functionality
-                voiceButton.addEventListener('click', function() {
-                    if (!('webkitSpeechRecognition' in window)) {
-                        alert('{{ "Voice recognition not supported in this browser."|xlt|js_escape }}');
-                        return;
+    document.addEventListener('DOMContentLoaded', function() {
+        const notes = document.getElementById('observations');
+        const form = document.getElementById('observation-form');
+        if (!notes || !form) { return; }
+        // A native textarea works across OpenEMR versions without editor assets.
+        document.getElementById('voice-controls').style.display = 'block';
+        const voiceButton = document.getElementById('voice-button');
+        const aiButton = document.getElementById('ai-button');
+        voiceButton.addEventListener('click', function() {
+            if (!('webkitSpeechRecognition' in window)) {
+                alert('{{ "Voice recognition not supported in this browser."|xlt|js_escape }}');
+                return;
+            }
+            const recognition = new webkitSpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = 'en-US';
+            voiceButton.disabled = true;
+            recognition.onresult = function(event) {
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    if (event.results[i].isFinal) {
+                        notes.setRangeText(event.results[i][0].transcript + ' ', notes.selectionStart, notes.selectionEnd, 'end');
                     }
-
-                    const recognition = new webkitSpeechRecognition();
-                    recognition.continuous = true;
-                    recognition.interimResults = true;
-                    recognition.lang = 'en-US';
-
-                    // Update button appearance
-                    voiceButton.innerHTML = '🔴 {{ "Recording..."|xlt|js_escape }}';
-                    voiceButton.style.backgroundColor = '#dc3545';
-                    voiceButton.style.color = 'white';
-                    voiceButton.disabled = true;
-
-                    let finalTranscript = '';
-
-                    recognition.onresult = function(event) {
-                        let interimTranscript = '';
-
-                        for (let i = event.resultIndex; i < event.results.length; i++) {
-                            const transcript = event.results[i][0].transcript;
-                            if (event.results[i].isFinal) {
-                                finalTranscript += transcript + ' ';
-                            } else {
-                                interimTranscript += transcript;
-                            }
-                        }
-
-                        // Insert final transcript into CKEditor
-                        if (finalTranscript) {
-                            editor.insertText(finalTranscript);
-                            finalTranscript = '';
-                        }
-                    };
-
-                    recognition.onerror = function(event) {
-                        console.error('Speech recognition error:', event.error);
-                        alert('{{ "Voice recognition error. Please try again."|xlt|js_escape }}');
-                        resetVoiceButton();
-                    };
-
-                    recognition.onend = function() {
-                        resetVoiceButton();
-                    };
-
-                    function resetVoiceButton() {
-                        voiceButton.innerHTML = '🎤 {{ "Voice Input"|xlt|js_escape }}';
-                        voiceButton.style.backgroundColor = '';
-                        voiceButton.style.color = '';
-                        voiceButton.disabled = false;
-                    }
-
-                    recognition.start();
-
-                    // Auto-stop after 30 seconds
-                    setTimeout(() => {
-                        recognition.stop();
-                    }, 30000);
-                });
-
-                // AI revision functionality
-                aiButton.addEventListener('click', function() {
-                    const currentContent = editor.getData();
-                    const textContent = editor.document.getBody().getText().trim();
-
-                    if (textContent === '') {
-                        alert('{{ "Please enter some text to revise."|xlt|js_escape }}');
-                        return;
-                    }
-
-                    // Update button state
-                    aiButton.innerHTML = '{{ "Processing..."|xlt|js_escape }}';
-                    aiButton.disabled = true;
-
-                    // Make API call to ChatGPT
-                    fetch('{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/treatment/revise', {
-                        method: 'POST',
-                        body: new URLSearchParams({
-                            csrf_token_form: document.querySelector('[name="csrf_token_form"]').value,
-                            pid: document.querySelector('[name="pid"]').value,
-                            encounter: document.querySelector('[name="encounter"]').value,
-                            text: textContent
-                        })
-                    })
-                        .then(response => {
-                            if (!response.ok) {
-                                throw new Error(`ChatGPT API error: ${response.statusText}`);
-                            }
-                            return response.json();
-                        })
-                        .then(data => {
-                            // Replace editor content with AI-revised text
-                            editor.setData(CKEDITOR.tools.htmlEncode(data.content).replace(/\n/g, '<br>'));
-                            aiButton.innerHTML = '{{ "Revise with AI"|xlt|js_escape }}';
-                            aiButton.disabled = false;
-                        })
-                        .catch(error => {
-                            console.error('AI revision error:', error);
-                            alert('{{ "AI revision failed. Please check your internet connection and try again."|xlt|js_escape }}');
-                            aiButton.innerHTML = '{{ "Revise with AI"|xlt|js_escape }}';
-                            aiButton.disabled = false;
-                        });
-                });
-
-                // Ensure form submission gets CKEditor content
-                document.getElementById('observation-form').addEventListener('submit', function() {
-                    // Update textarea with CKEditor content before form submission
-                    document.getElementById('observations').value = editor.getData();
-                    const submitButton = this.querySelector('[name="submit_observations"]');
-                    if (submitButton) { submitButton.setAttribute('aria-busy', 'true'); }
-                });
-            });
+                }
+            };
+            recognition.onerror = function() {
+                voiceButton.disabled = false;
+                alert('{{ "Voice recognition error. Please try again."|xlt|js_escape }}');
+            };
+            recognition.onend = function() { voiceButton.disabled = false; };
+            recognition.start();
+            setTimeout(function() { recognition.stop(); }, 30000);
         });
+        aiButton.addEventListener('click', async function() {
+            const original = notes.value;
+            if (!original.trim()) {
+                alert('{{ "Please enter some text to revise."|xlt|js_escape }}');
+                return;
+            }
+            aiButton.disabled = true;
+            try {
+                const response = await fetch('{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/treatment/revise', {
+                    method: 'POST',
+                    body: new URLSearchParams({
+                        csrf_token_form: form.querySelector('[name="csrf_token_form"]').value,
+                        pid: form.querySelector('[name="pid"]').value,
+                        encounter: form.querySelector('[name="encounter"]').value,
+                        text: original
+                    })
+                });
+                const data = await response.json();
+                if (!response.ok || typeof data.content !== 'string' || !data.content.trim()) {
+                    throw new Error('Revision failed');
+                }
+                // Do not replace notes typed while the request was in flight.
+                if (notes.value !== original) {
+                    alert('{{ "Notes changed while revising. Your current notes were kept."|xlt|js_escape }}');
+                    return;
+                }
+                notes.value = data.content;
+            } catch (error) {
+                alert('{{ "AI revision failed. Your notes were kept."|xlt|js_escape }}');
+            } finally {
+                aiButton.disabled = false;
+            }
+        });
+        form.addEventListener('submit', function() {
+            const submitButton = form.querySelector('[name="submit_observations"]');
+            if (submitButton) { submitButton.setAttribute('aria-busy', 'true'); }
+        });
+    });
     </script>
-
 {% endblock %}
