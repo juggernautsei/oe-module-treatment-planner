@@ -7,6 +7,7 @@ namespace OpenEMR\Common\Acl {
 }
 namespace OpenEMR\Common\Csrf {
     class CsrfUtils {
+        public static function collectCsrfToken($scope = 'default'): string { return 'valid'; }
         public static function verifyCsrfToken($token, $scope = ''): bool { return $token === 'valid'; }
     }
 }
