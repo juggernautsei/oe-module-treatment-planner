@@ -71,6 +71,15 @@ class UsageService
         return QueryUtils::sqlInsert($sql, $params) > 0;
     }
     
+    public function recordUsageSafely(int $providerId, string $model, int $promptTokens = 0, int $completionTokens = 0, float $duration = 0): bool
+    {
+        return (new UsageRetryService())->record([
+            'provider_id' => $providerId, 'usage_datetime' => date('Y-m-d H:i:s'), 'model' => $model,
+            'prompt_tokens' => $promptTokens, 'completion_tokens' => $completionTokens,
+            'duration_seconds' => $duration, 'estimated_cost' => $this->calculateCost($model, $promptTokens, $completionTokens)
+        ]);
+    }
+
     /**
      * Calculate the estimated cost of an API call based on token usage and model
      * 

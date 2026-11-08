@@ -172,6 +172,7 @@ $apiKeyConfigured = $configService->isApiKeyConfigured();
                             <div class="col-md-6">
                                 <h5><?php echo xlt('Quick Links'); ?></h5>
                                 <ul class="list-unstyled small">
+                                    <li><a href="retry_usage.php"><?php echo xlt('Retry Usage Recording'); ?></a></li>
                                     <li><a href="initialize_templates.php"><?php echo xlt('Initialize Default Templates'); ?></a></li>
                                     <li><a href="public/index.php/treatment/create"><?php echo xlt('Create Treatment Plan'); ?></a></li>
                                 </ul>

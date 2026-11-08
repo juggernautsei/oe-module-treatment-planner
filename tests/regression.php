@@ -39,7 +39,7 @@ namespace {
 
     function sqlQuery($sql, $params = []) {
         if (strpos($sql, 'GET_LOCK') !== false) { return ['acquired' => $GLOBALS['testLockAcquired'] ?? 1]; }
-        if (strpos($sql, 'information_schema.TABLES') !== false) { return ['table_count' => $GLOBALS['testTableCount'] ?? 6]; }
+        if (strpos($sql, 'information_schema.TABLES') !== false) { return ['table_count' => $GLOBALS['testTableCount'] ?? 7]; }
         if (strpos($sql, 'information_schema.COLUMNS') !== false) { return ['IS_NULLABLE' => 'YES']; }
         if (strpos($sql, 'FROM list_options') !== false) { return $GLOBALS['testLists'][$params[0]][$params[1]] ?? []; }
         return ['sensitivity' => $GLOBALS['testSensitivity'] ?? 'normal'];

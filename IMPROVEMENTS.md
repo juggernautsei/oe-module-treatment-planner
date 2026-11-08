@@ -48,3 +48,8 @@ Automated tests use synthetic data and isolated OpenEMR adapters. Before clinica
 ## Version 1.0.3 follow-up
 
 See [the 1.0.3 edit log](EDITS-1.0.3.md). Assessment prompts retain the previously omitted medication, allergy, and detailed risk/history fields. Default-template initialization is administrator-only, CSRF-protected, transactional, and makes no AI calls. Generation uses a persistent request ledger and a 303 redirect to prevent repeated submissions of the same form from creating another plan or API call. Setup links and temperature validation are corrected. A request-ledger table brings the module total to six; run the automatic upgrade before use.
+
+
+## Version 1.0.4 follow-up
+
+See [the 1.0.4 edit log](EDITS-1.0.4.md). Generated output is preserved during usage logging failures, with queued metadata retries available to administrators. Save errors preserve submitted edits and their original version token. Encounter linking is required for successful plan creation. Age displays use server-side date arithmetic. Run the database upgrade to add the seventh module table, the usage retry queue.

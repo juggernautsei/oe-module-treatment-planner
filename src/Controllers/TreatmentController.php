@@ -170,87 +170,53 @@ class TreatmentController
     public function editAction(): void
     {
         $planId = (int)($_GET['id'] ?? 0);
-        $message = '';
-        $error = '';
-
+        $message = ''; $error = '';
+        $submitted = $_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['submit_edit']) || isset($_POST['submit_finalize']));
         try {
-            // Get the treatment plan
             $plan = $this->treatmentService->getTreatmentPlan($planId);
-
-            if (!$plan) {
-                $error = xl('Treatment plan not found');
-            } else {
-                \OpenEMR\Modules\TreatmentPlanner\Services\AccessService::assertPatient((int)$plan['patient_id'], true, (int)$plan['encounter_id']);
-                if ($plan['status'] === TreatmentService::STATUS_FINALIZED) {
-                    throw new Exception('Finalized plans are read-only.');
-                }
-                // Process form submission for editing
-                if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['submit_edit']) || isset($_POST['submit_finalize']))) {
-                    // Verify CSRF
-                    if (!CsrfUtils::verifyCsrfToken(($_POST['csrf_token_form'] ?? ''), 'treatment-planner')) {
-                        $error = xl('Authentication Error');
-                    } else {
-                        $content = $_POST['content'] ?? '';
-                        $providerId = $_SESSION['authUserID'] ?? 0;
-
-                        // Update the treatment plan
-                        $updateData = ['content' => $content, 'expected_version' => (int)($_POST['expected_version'] ?? 0)];
-
-                        // Handle finalization
-                        if (isset($_POST['submit_finalize'])) {
-                            $updateData['status'] = 'finalized';
-                            
-                            // Ensure we have encounter and patient data from session
-                            if (isset($_SESSION['encounter']) && isset($_SESSION['pid'])) {
-                                $updateData['encounter_id'] = $_SESSION['encounter'];
-                                $updateData['patient_id'] = $_SESSION['pid'];
-                            }
-                            
-                            if ($this->treatmentService->updateTreatmentPlan($planId, $updateData, $providerId)) {
-                                $message = xl('Treatment plan finalized successfully! It will now appear in the patient summary.');
-                                // Refresh the plan data
-                                $plan = $this->treatmentService->getTreatmentPlan($planId);
-                            } else {
-                                $error = xl('Failed to finalize treatment plan');
-                            }
-                        } else {
-                            // Regular save (draft)
-                            if (!empty($_POST['status']) && $_POST['status'] !== $plan['status']) {
-                                $updateData['status'] = $_POST['status'];
-                            }
-
-                            if ($this->treatmentService->updateTreatmentPlan($planId, $updateData, $providerId)) {
-                                $message = xl('Treatment plan updated successfully');
-                                // Refresh the plan data
-                                $plan = $this->treatmentService->getTreatmentPlan($planId);
-                            } else {
-                                $error = xl('Failed to update treatment plan');
-                            }
-                        }
-                    }
+            if (!$plan) { throw new Exception('Treatment plan not found'); }
+            \OpenEMR\Modules\TreatmentPlanner\Services\AccessService::assertPatient((int)$plan['patient_id'], true, (int)$plan['encounter_id']);
+            $editorContent = $plan['content'];
+            $formVersion = (int)$plan['version'];
+            $selectedStatus = $plan['status'];
+            if ($submitted) {
+                $editorContent = is_string($_POST['content'] ?? null) ? $_POST['content'] : '';
+                // Keep the submitted version even on conflict; never silently rebase the edit.
+                $formVersion = (int)($_POST['expected_version'] ?? 0);
+                $selectedStatus = is_string($_POST['status'] ?? null) ? $_POST['status'] : $plan['status'];
+                $saved = false;
+                try {
+                    $token = is_string($_POST['csrf_token_form'] ?? null) ? $_POST['csrf_token_form'] : '';
+                    if (!CsrfUtils::verifyCsrfToken($token, 'treatment-planner')) { throw new Exception('Authentication Error'); }
+                    $status = isset($_POST['submit_finalize']) ? TreatmentService::STATUS_FINALIZED : $selectedStatus;
+                    if (!$this->treatmentService->updateTreatmentPlan($planId, [
+                        'content' => $editorContent, 'status' => $status, 'expected_version' => $formVersion
+                    ], (int)($_SESSION['authUserID'] ?? 0))) { throw new Exception('Unable to save treatment plan'); }
+                    $saved = true;
+                    $refreshedPlan = $this->treatmentService->getTreatmentPlan($planId);
+                    if (!$refreshedPlan) { throw new Exception('Saved plan is temporarily unavailable.'); }
+                    $plan = $refreshedPlan;
+                    $editorContent = $plan['content']; $formVersion = (int)$plan['version']; $selectedStatus = $plan['status'];
+                    $message = xl('Treatment plan saved successfully');
+                } catch (\Throwable $e) {
+                    $error = ($saved
+                        ? xl('The save completed, but the saved plan could not be refreshed. Your submitted text is preserved below. ')
+                        : xl('Your changes were not saved. Your submitted text is preserved below. ')) . $e->getMessage();
                 }
             }
-
-            // Render the edit form
+            $readOnly = $plan['status'] === TreatmentService::STATUS_FINALIZED;
+            if ($readOnly && !$submitted) { throw new Exception('Finalized plans are read-only.'); }
             echo $this->twig->getTwig()->render('treatment/edit.html.twig', [
                 'csrf_token_form' => CsrfUtils::collectCsrfToken('treatment-planner'),
-                'plan' => $plan,
-                'message' => $message,
-                'error' => $error,
-                'statuses' => [
-                    TreatmentService::STATUS_DRAFT => xl('Draft'),
-                    TreatmentService::STATUS_PENDING_REVIEW => xl('Pending Review'),
-                    TreatmentService::STATUS_APPROVED => xl('Approved'),
-                    TreatmentService::STATUS_FINALIZED => xl('Finalized')
-                ],
-                'webroot' => $GLOBALS['webroot'],
-                'module_name' => 'oe-module-treatment-planner'
+                'plan' => $plan, 'message' => $message, 'error' => $error,
+                'editor_content' => $editorContent, 'form_version' => $formVersion,
+                'selected_status' => $selectedStatus, 'read_only' => $readOnly,
+                'statuses' => [TreatmentService::STATUS_DRAFT => xl('Draft'), TreatmentService::STATUS_PENDING_REVIEW => xl('Pending Review'),
+                    TreatmentService::STATUS_APPROVED => xl('Approved'), TreatmentService::STATUS_FINALIZED => xl('Finalized')],
+                'webroot' => $GLOBALS['webroot'], 'module_name' => 'oe-module-treatment-planner'
             ]);
-
         } catch (Exception $e) {
-            echo $this->twig->getTwig()->render('error.html.twig', [
-                'error' => $e->getMessage()
-            ]);
+            echo $this->twig->getTwig()->render('error.html.twig', ['error' => $e->getMessage()]);
         }
     }
 

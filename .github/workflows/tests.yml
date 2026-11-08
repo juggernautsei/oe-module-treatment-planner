@@ -18,6 +18,7 @@ jobs:
       - run: find . -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l
       - run: php tests/review3.php
       - run: php tests/create-flow.php
+      - run: php tests/review4.php
   integration:
     runs-on: ubuntu-latest
     services:

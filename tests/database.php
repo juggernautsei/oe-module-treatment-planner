@@ -26,7 +26,11 @@ namespace {
     use OpenEMR\Modules\TreatmentPlanner\Services\UsageService;
     function sqlQuery($sql, $params = []) { return QueryUtils::querySingleRow($sql, $params); }
     function xlt($value) { return $value; }
-    function addForm(...$args) { return 1; }
+    function addForm(...$args) {
+        if (($GLOBALS['failFormMode'] ?? '') === 'exception') { throw new RuntimeException('Synthetic encounter-link failure'); }
+        if (($GLOBALS['failFormMode'] ?? '') === 'false') { return false; }
+        return QueryUtils::sqlInsert('INSERT INTO forms (encounter, pid, form_id, formdir) VALUES (?, ?, ?, ?)', [$args[0], $args[4], $args[2], $args[3]]);
+    }
     function verify($condition, $message) { if (!$condition) { throw new RuntimeException($message); } $GLOBALS['checks']++; }
     $dsn = getenv('TP_TEST_DSN');
     if (!$dsn) { fwrite(STDERR, "Set TP_TEST_DSN to an empty disposable MySQL database ending in _test.\n"); exit(2); }
@@ -48,7 +52,7 @@ namespace {
     SchemaService::migrate();
     SchemaService::migrate();
     SchemaService::assertReady();
-    verify((int)$db->query('SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()')->fetchColumn() === 6, 'Fresh install and repeated upgrades must create six module tables');
+    verify((int)$db->query('SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()')->fetchColumn() === 7, 'Fresh install and repeated upgrades must create seven module tables');
     // Exercise the previous schema, then upgrade without losing historical estimates.
     $db->exec('ALTER TABLE module_treatment_planner_usage MODIFY estimated_cost decimal(10,6) NOT NULL DEFAULT 0');
     $db->exec("INSERT INTO module_treatment_planner_usage (provider_id, usage_datetime, model, estimated_cost) VALUES (7, NOW(), 'historical', 1.25)");
@@ -60,6 +64,7 @@ namespace {
     $db->exec("INSERT INTO patient_data VALUES (10, 'Synthetic', 'Patient', '1990-01-01', 'unspecified')");
     $db->exec('CREATE TABLE form_encounter (encounter bigint PRIMARY KEY, pid bigint, date datetime, sensitivity varchar(20))');
     $db->exec("INSERT INTO form_encounter VALUES (20, 10, NOW(), 'normal')");
+    $db->exec('CREATE TABLE forms (id int AUTO_INCREMENT PRIMARY KEY, encounter bigint, pid bigint, form_id int, formdir varchar(100))');
     $db->exec("INSERT INTO module_treatment_planner_plans (patient_id, encounter_id, provider_id, content, sections) VALUES (10, 20, 7, 'Original', '{}')");
     $id = (int)$db->lastInsertId();
     $_SESSION = ['authUser' => 'test-clinician', 'authUserID' => 7, 'pid' => 10];
@@ -159,6 +164,51 @@ namespace {
     verify($initializer->initialize('POST', 'valid', $templates) === 3, 'Secure initializer must create all defaults in the database');
     verify((int)$db->query('SELECT COUNT(*) FROM module_treatment_planner_templates WHERE created_by = 7')->fetchColumn() === 3, 'Default templates must retain administrator attribution');
     verify($initializer->initialize('POST', 'valid', $templates) === 0, 'Repeated initialization must not duplicate defaults');
+    $testAI->fail = false;
+    foreach (['false', 'exception'] as $mode) {
+        $GLOBALS['failFormMode'] = $mode;
+        $key = $requests::newKey();
+        $beforePlans = (int)$db->query('SELECT COUNT(*) FROM module_treatment_planner_plans')->fetchColumn();
+        try { $service->createTreatmentPlan(10, 20, 'Link failure notes', [], 7, $key); throw new LogicException('Detached plan accepted'); }
+        catch (Exception $e) { verify(strpos($e->getMessage(), 'Unable to link') !== false, 'Link failure must be reported clearly'); }
+        verify((int)$db->query('SELECT COUNT(*) FROM module_treatment_planner_plans')->fetchColumn() === $beforePlans, 'A failed encounter link must roll back plan creation');
+        verify($db->query("SELECT state FROM module_treatment_planner_requests WHERE request_key = '$key'")->fetchColumn() === 'failed', 'A failed link must not mark the request complete');
+    }
+    unset($GLOBALS['failFormMode']);
+    // Use the actual AI coordinator with a fixture response; fail only the usage INSERT.
+    class DatabaseAIConfig extends \OpenEMR\Modules\TreatmentPlanner\Services\ConfigService {
+        public function __construct() {}
+        public function getDecryptedApiKey(): ?string { return 'synthetic-key'; }
+        public function getModel(): string { return 'priced-model'; }
+        public function getTemperature(): float { return 0.7; }
+    }
+    class DatabaseFixtureAI extends OpenAIService {
+        protected function makeApiRequest(array $data): array { return ['choices' => [['message' => ['content' => 'Output retained despite usage failure'], 'finish_reason' => 'stop']], 'usage' => ['prompt_tokens' => 100, 'completion_tokens' => 50]]; }
+    }
+    $realUsage = new UsageService(['priced-model' => ['prompt' => 2, 'completion' => 4]]);
+    $realCoordinator = new DatabaseFixtureAI(new DatabaseAIConfig(), $realUsage, new \OpenEMR\Modules\TreatmentPlanner\Services\PromptGenerationService());
+    (new ReflectionProperty($service, 'openAIService'))->setValue($service, $realCoordinator);
+    $db->exec("CREATE TRIGGER tp_usage_guard BEFORE INSERT ON module_treatment_planner_usage FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Synthetic usage failure'");
+    $saved = $service->createTreatmentPlan(10, 20, 'Usage failure notes', [], 7, $requests::newKey());
+    verify($service->getTreatmentPlan($saved['id'])['content'] === 'Output retained despite usage failure', 'Usage INSERT failure must not prevent saving generated content');
+    verify((int)$db->query('SELECT COUNT(*) FROM forms WHERE form_id = ' . (int)$saved['id'])->fetchColumn() === 1, 'Successful creation must include its encounter form link');
+    $retry = new \OpenEMR\Modules\TreatmentPlanner\Services\UsageRetryService();
+    verify($retry->pendingCount() === 1 && $saved['metadata']['usage_recorded'] === false, 'Failed usage must remain available for retry');
+    $queued = $db->query('SELECT * FROM module_treatment_planner_usage_queue LIMIT 1')->fetch(PDO::FETCH_ASSOC);
+    $db->exec('DROP TRIGGER tp_usage_guard');
+    $usageCount = (int)$db->query('SELECT COUNT(*) FROM module_treatment_planner_usage')->fetchColumn();
+    $retried = $retry->retryPending();
+    verify($retried['remaining'] === 0 && $retried['recorded'] === 1, 'Retry must consume pending metadata');
+    verify((int)$db->query('SELECT COUNT(*) FROM module_treatment_planner_usage')->fetchColumn() === $usageCount + 1, 'Retry must insert exactly one usage record');
+    $retry->process($queued['event_key']); $retry->retryPending();
+    verify((int)$db->query('SELECT COUNT(*) FROM module_treatment_planner_usage')->fetchColumn() === $usageCount + 1, 'Repeated retry must not duplicate usage');
+    $last = $db->query('SELECT * FROM module_treatment_planner_usage ORDER BY id DESC LIMIT 1')->fetch(PDO::FETCH_ASSOC);
+    verify($last['usage_datetime'] === $queued['usage_datetime'] && $last['estimated_cost'] === $queued['estimated_cost'], 'Retry must preserve original timestamp and price');
+    $db->exec("CREATE TRIGGER tp_queue_guard BEFORE INSERT ON module_treatment_planner_usage_queue FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Synthetic queue failure'");
+    $queueFailurePlan = $service->createTreatmentPlan(10, 20, 'Queue unavailable notes', [], 7, $requests::newKey());
+    verify($service->getTreatmentPlan($queueFailurePlan['id'])['content'] === 'Output retained despite usage failure', 'Queue unavailability must not discard successful output');
+    verify($queueFailurePlan['metadata']['usage_recorded'] === false && $retry->pendingCount() === 0, 'Unavailable queue must report unrecorded usage without pretending it was queued');
+    $db->exec('DROP TRIGGER tp_queue_guard');
     unlink($fixture . '/library/forms.inc.php'); rmdir($fixture . '/library'); rmdir($fixture);
     echo $GLOBALS['checks'] . " database integration checks passed\n";
 }

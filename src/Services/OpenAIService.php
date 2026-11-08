@@ -105,23 +105,15 @@ class OpenAIService
         $completionTokens = (int)($response['usage']['completion_tokens'] ?? $this->estimateTokenCount($planData['content']));
         $totalTokens = $promptTokens + $completionTokens;
         
-        // Track API usage if usage service is available
-        if ($this->usageService && $providerId > 0) {
-            $this->usageService->trackUsage(
-                $providerId,
-                $model,
-                $promptTokens,
-                $completionTokens,
-                microtime(true) - $startTime
-            );
-        }
-        
+        $usageRecorded = $this->recordUsageSafely($providerId, $model, $promptTokens, $completionTokens, microtime(true) - $startTime);
+
         // Add metadata to the result
         $planData['metadata'] = [
             'model' => $model,
             'prompt_tokens' => $promptTokens,
             'completion_tokens' => $completionTokens,
             'total_tokens' => $totalTokens,
+            'usage_recorded' => $usageRecorded,
             'options' => $options
         ];
         
@@ -141,12 +133,21 @@ class OpenAIService
             'temperature' => 0.2, 'max_tokens' => 2000
         ]);
         $plan = $this->parseResponse($response);
-        if ($this->usageService) {
-            $this->usageService->trackUsage($providerId, $model,
-                (int)($response['usage']['prompt_tokens'] ?? 0),
-                (int)($response['usage']['completion_tokens'] ?? 0), microtime(true) - $start);
-        }
+        $this->recordUsageSafely($providerId, $model,
+            (int)($response['usage']['prompt_tokens'] ?? 0),
+            (int)($response['usage']['completion_tokens'] ?? 0), microtime(true) - $start);
         return $plan['content'];
+    }
+
+    private function recordUsageSafely(int $providerId, string $model, int $promptTokens, int $completionTokens, float $duration): bool
+    {
+        if (!$this->usageService || $providerId <= 0) { return false; }
+        try {
+            return $this->usageService->recordUsageSafely($providerId, $model, $promptTokens, $completionTokens, $duration);
+        } catch (\Throwable $e) {
+            error_log('Treatment Planner usage logging failed; generated output is preserved.');
+            return false;
+        }
     }
 
     /**
@@ -156,7 +157,7 @@ class OpenAIService
      * @return array Response data
      * @throws Exception If the API request fails
      */
-    private function makeApiRequest(array $data): array
+    protected function makeApiRequest(array $data): array
     {
         $apiKey = $this->configService->getDecryptedApiKey();
         $endpoint = 'https://api.openai.com/v1/chat/completions';

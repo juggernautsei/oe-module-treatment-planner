@@ -5,6 +5,7 @@
 ```sh
 php tests/review3.php
 php tests/create-flow.php
+php tests/review4.php
 ```
 
 The review suite also runs `regression.php` and `followup.php`. It needs no OpenEMR instance, database, API key, or vendor dependencies. PHP 7.4 and later are exercised by CI.
@@ -39,7 +40,7 @@ GitHub Actions runs isolated checks on PHP 7.4/8.3/8.5 and database/template int
 
 Automated adapters cannot establish complete OpenEMR/browser compatibility. On a backed-up staging installation:
 
-1. Upgrade or disable/re-enable the module and verify the six module tables, nullable cost column, and unchanged existing records. Repeat the lifecycle action to confirm repeatability. Verify Weno settings, if installed, remain unchanged.
+1. Upgrade or disable/re-enable the module and verify the seven module tables, nullable cost column, and unchanged existing records. Repeat the lifecycle action to confirm repeatability. Verify Weno settings, if installed, remain unchanged.
 2. Check view-only, writer, and signer roles, selected-chart restrictions, and restricted encounter sensitivity.
 3. Generate a plan from an assessment containing coded list fields and verify readable labels reach the prompt. Confirm unmapped fields are explicit.
 4. Exercise draft → review → approved → finalized; attempt edits after finalization and stale saves from two tabs.
@@ -49,3 +50,6 @@ Automated adapters cannot establish complete OpenEMR/browser compatibility. On a
 
 
 Version 1.0.3 adds tests for complete assessment-to-prompt propagation, secure initialization, temperature validation, request-key matching/ownership, replay without another AI call, concurrent claims, uncertain failures, plan/request completion rollback, initializer rollback, preserved form notes, and POST-to-GET redirects. The database suite uses a second MySQL connection and test-only failure triggers to exercise races and rollback. In staging, also test refreshing a successful result, submitting the same form twice, and deliberately retrying from a new form after inspecting the plan list.
+
+
+Version 1.0.4 adds tests for usage INSERT/queue failures without output loss, metadata retry idempotency, preserved event timestamp/cost, encounter-link false/exception rollback, submitted-edit recovery, stale-version token preservation, finalized read-only recovery, post-save refresh failures, and birthday/leap-year/invalid DOB handling. In staging, also exercise the administrator-only usage retry page, invalid CSRF, and copied recovery text in the browser.

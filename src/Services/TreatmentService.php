@@ -165,24 +165,15 @@ class TreatmentService
             throw new Exception(xlt('Failed to store treatment plan'));
         }
         
-        // Add the treatment plan as a form in the encounter
+        // Required part of the surrounding transaction: never report a detached plan as success.
         try {
-            addForm(
-                $encounterId,           // encounter
-                'Treatment Plan',       // form_name
-                $planId,               // form_id (the treatment plan ID)
-                'treatment_planner',   // formdir (directory/module identifier)
-                $patientId,            // pid
-                '1',                   // authorized (1 = authorized since created by provider)
-                'NOW()',               // date (use current timestamp)
-                $_SESSION['authUser'] ?? '', // user (current user)
-                $_SESSION['authProvider'] ?? '' // group (current provider)
-            );
-        } catch (Exception $e) {
-            // Log the error but don't fail the treatment plan creation
-            error_log("Failed to add treatment plan to forms table: " . $e->getMessage());
+            $formId = addForm($encounterId, 'Treatment Plan', $planId, 'treatment_planner', $patientId,
+                '1', 'NOW()', $_SESSION['authUser'] ?? '', $_SESSION['authProvider'] ?? '');
+            if (!$formId) { throw new Exception('Encounter form registration returned no identifier.'); }
+        } catch (\Throwable $e) {
+            throw new Exception('Unable to link the treatment plan to the encounter. The plan was not saved; check the server log before starting another generation.', 0, $e);
         }
-        
+
         return $planId;
     }
     
@@ -285,6 +276,7 @@ class TreatmentService
         
         if ($result) {
             AccessService::assertPatient((int)$result['patient_id'], false, (int)$result['encounter_id']);
+            $result['age'] = PatientAgeService::calculate($result['DOB'] ?? null);
             // Decode the sections JSON
             $result['sections'] = json_decode($result['sections'], true);
         }

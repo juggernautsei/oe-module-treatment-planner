@@ -62,9 +62,8 @@
                         <div class="row mb-3">
                             <div class="col-md-4">
                                 <strong>{{ "Age"|xlt }}:</strong> 
-                                {% if plan.DOB %}
-                                    {% set age = "now"|date("Y") - plan.DOB|date("Y") %}
-                                    {{ age }} {{ "years"|xlt }}
+                                {% if plan.age is not null %}
+                                    {{ plan.age|text }} {{ "years"|xlt }}
                                 {% else %}
                                     {{ "Not specified"|xlt }}
                                 {% endif %}

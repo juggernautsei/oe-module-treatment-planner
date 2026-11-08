@@ -224,3 +224,8 @@ The new release removes the Weno dependency, automates schema upgrades, resolves
 ## Latest corrections: version 1.0.3
 
 Read [the detailed edit log](../EDITS-1.0.3.md) and [the consolidated improvements](../IMPROVEMENTS.md). This release completes assessment prompt data, secures template initialization, prevents duplicate generation requests, and repairs setup navigation and validation. Upgrade the database through Module Manager before use.
+
+
+## Latest corrections: version 1.0.4
+
+See [the edit log](../EDITS-1.0.4.md) for usage-failure recovery, preserved unsaved edits, transactional encounter linking, and corrected age displays. The [consolidated overview](../IMPROVEMENTS.md) includes these changes. Apply the database upgrade before use.

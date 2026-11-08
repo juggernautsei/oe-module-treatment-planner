@@ -32,6 +32,7 @@
         "test": [
             "@php tests/review3.php",
             "@php tests/create-flow.php",
+            "@php tests/review4.php",
             "@php tests/template.php"
         ],
         "test:database": "@php tests/database.php"
