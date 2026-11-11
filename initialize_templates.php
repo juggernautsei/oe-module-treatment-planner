@@ -1,97 +1,45 @@
 <?php
-
-/**
- * Initialize default templates for Treatment Planner.
- * Run this script once to set up the default templates.
- *
- * @package   OpenEMR
- * @link      https://www.open-emr.org
- * @author    Sherwin Gaddis <sherwingaddis@gmail.com>
- * @copyright Copyright (c) 2025 Sherwin Gaddis <sherwingaddis@gmail.com>
- * @license   https://github.com/openemr/openemr/blob/master/LICENSE GNU General Public License 3
- */
-
+/** Administrator-only template initialization. Never sends an AI request. */
 require_once dirname(__FILE__, 4) . '/globals.php';
 
+use OpenEMR\Common\Acl\AclMain;
+use OpenEMR\Modules\TreatmentPlanner\Services\CsrfService;
+use OpenEMR\Core\Header;
+use OpenEMR\Modules\TreatmentPlanner\Services\TemplateInitializationService;
 use OpenEMR\Modules\TreatmentPlanner\Services\TemplateService;
-use OpenEMR\Modules\TreatmentPlanner\Services\ConfigService;
-use OpenEMR\Modules\TreatmentPlanner\Services\OpenAIService;
-use OpenEMR\Modules\TreatmentPlanner\Services\UsageService;
 
-echo "Initializing Treatment Planner Templates...\n";
-
-try {
-    // Initialize services
-    $templateService = new TemplateService();
-    $configService = new ConfigService();
-    
-    // Check if templates already exist
-    $existingTemplates = $templateService->getAllTemplates();
-    
-    if (count($existingTemplates) > 0) {
-        echo "Templates already exist (" . count($existingTemplates) . " found). Skipping initialization.\n";
-        echo "Existing templates:\n";
-        foreach ($existingTemplates as $template) {
-            echo "- " . $template['name'] . "\n";
-        }
-    } else {
-        echo "Creating default templates...\n";
-        
-        // Create default templates
-        $createdIds = $templateService->createDefaultTemplates();
-        
-        echo "Successfully created " . count($createdIds) . " templates:\n";
-        foreach ($createdIds as $id) {
-            $template = $templateService->getTemplate($id);
-            echo "- " . $template['name'] . " (ID: $id)\n";
-        }
-    }
-    
-    echo "\n--- Configuration Status ---\n";
-    
-    // Check API key configuration
-    $apiKey = $configService->getDecryptedApiKey();
-    if ($apiKey) {
-        echo "✅ OpenAI API Key: Configured\n";
-        
-        // Test API connection
-        echo "Testing API connection...\n";
-        
-        $usageService = new UsageService();
-        $openAIService = new OpenAIService($configService, $usageService);
-        
-        try {
-            $testResult = $openAIService->generateTreatmentPlan(
-                ['age' => 35, 'gender' => 'Female'],
-                'Patient reports feeling sad and hopeless for the past 3 weeks. Difficulty sleeping and loss of appetite.',
-                ['template' => 'Create a brief test treatment plan for depression symptoms.'],
-                1
-            );
-            
-            echo "✅ API Connection: SUCCESS\n";
-            echo "Test response received (". strlen($testResult['content']) . " characters)\n";
-            echo "Model used: " . $testResult['metadata']['model'] . "\n";
-            echo "Tokens used: " . $testResult['metadata']['total_tokens'] . "\n";
-            
-        } catch (Exception $e) {
-            echo "❌ API Connection: FAILED\n";
-            echo "Error: " . $e->getMessage() . "\n";
-        }
-        
-    } else {
-        echo "❌ OpenAI API Key: Not configured\n";
-        echo "Please run the setup page to configure your API key.\n";
-    }
-    
-    echo "\n--- Next Steps ---\n";
-    echo "1. Configure OpenAI API key via setup page if not done\n";
-    echo "2. Test treatment plan generation via the interface\n";
-    echo "3. Create additional custom templates as needed\n";
-    echo "\nSetup URL: " . $GLOBALS['webroot'] . "/interface/modules/custom_modules/oe-module-treatment-planner/setup.php\n";
-    
-} catch (Exception $e) {
-    echo "❌ Error: " . $e->getMessage() . "\n";
-    echo "Stack trace:\n" . $e->getTraceAsString() . "\n";
+if (!\OpenEMR\Modules\TreatmentPlanner\Services\SessionContext::get('authUser') || !AclMain::aclCheckCore('admin', 'manage_modules')) {
+    http_response_code(403);
+    exit(xlt('Access denied'));
 }
-
-echo "\nInitialization complete.\n";
+$message = '';
+$error = '';
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    try {
+        $token = is_string($_POST['csrf_token_form'] ?? null) ? $_POST['csrf_token_form'] : '';
+        $count = (new TemplateInitializationService())->initialize('POST', $token, new TemplateService());
+        $message = $count > 0 ? xl('Default templates created successfully.') : xl('Templates already exist. No changes were made.');
+    } catch (Throwable $e) {
+        http_response_code(400);
+        $error = \OpenEMR\Modules\TreatmentPlanner\Services\ErrorService::publicMessage($e, 'initialize_templates');
+    }
+} elseif ($_SERVER['REQUEST_METHOD'] !== 'GET') {
+    http_response_code(405);
+    header('Allow: GET, POST');
+    exit;
+}
+?>
+<!doctype html>
+<html><head><meta charset="utf-8"><title><?php echo xlt('Initialize Treatment Planner Templates'); ?></title>
+<?php Header::setupHeader(['common']); ?></head>
+<body><main class="container mt-3">
+<h1><?php echo xlt('Initialize Treatment Planner Templates'); ?></h1>
+<p><?php echo xlt('Creates the three default templates only when no templates exist. This action does not call the AI service.'); ?></p>
+<?php if ($message): ?><div class="alert alert-success"><?php echo text($message); ?></div><?php endif; ?>
+<?php if ($error): ?><div class="alert alert-danger"><?php echo text($error); ?></div><?php endif; ?>
+<form method="post" action="">
+  <input type="hidden" name="csrf_token_form" value="<?php echo attr(CsrfService::collectCsrfToken('treatment-planner-init')); ?>">
+  <button class="btn btn-primary" type="submit"><?php echo xlt('Initialize Default Templates'); ?></button>
+</form>
+<a href="setup.php"><?php echo xlt('Back to Configuration'); ?></a>
+</main></body></html>

@@ -1,0 +1,77 @@
+name: Module tests
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: ['7.4', '8.3', '8.5']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring
+          coverage: none
+      - run: find . -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l
+      - run: php tests/review3.php
+      - run: php tests/create-flow.php
+      - run: php tests/review4.php
+      - run: php tests/review5.php
+      - run: php tests/session.php native
+      - run: php tests/session.php wrapper
+      - run: php tests/api-errors.php
+      - run: php tests/print-content.php
+      - run: php tests/clinical-support.php
+      - run: php tests/clinical-permissions.php
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test-only
+          MYSQL_DATABASE: treatment_planner_test
+        ports: ['3306:3306']
+        options: --health-cmd="mysqladmin ping -h 127.0.0.1 -ptest-only" --health-interval=10s --health-timeout=5s --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_mysql, mbstring
+          coverage: none
+          tools: composer:v2
+      - run: composer install --no-interaction --prefer-dist
+      - run: php tests/template.php
+      - run: php tests/database.php
+        env:
+          TP_TEST_DSN: mysql:host=127.0.0.1;port=3306;dbname=treatment_planner_test;charset=utf8mb4
+          TP_TEST_USER: root
+          TP_TEST_PASSWORD: test-only
+
+  core-compatibility:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - core: '7.0.3'
+            image: 'openemr/openemr@sha256:978a4a2ff9652b3448053456756ae9a233c0035e554d6049f2e9b45d3b730ae3'
+          - core: '8.5.0'
+            image: 'openemr/openemr@sha256:cb5c1ee729d5989cfe6dfd8b2b5ed55a587ebb625159ea0f9725e6fde762e0e4'
+    name: Core APIs and templates (${{ matrix.core }})
+    steps:
+      - uses: actions/checkout@v4
+      - name: Core session and CSRF interoperability
+        env:
+          CORE_IMAGE: ${{ matrix.image }}
+        run: |
+          docker run --rm --entrypoint php -e TP_CORE_AUTOLOAD=/var/www/localhost/htdocs/openemr/vendor/autoload.php --mount type=bind,source="$GITHUB_WORKSPACE",target=/module,readonly "$CORE_IMAGE" /module/tests/core-session.php
+      - name: Core Twig template rendering
+        env:
+          CORE_IMAGE: ${{ matrix.image }}
+        run: |
+          docker run --rm --entrypoint php -e TP_TEST_AUTOLOAD=/var/www/localhost/htdocs/openemr/vendor/autoload.php --mount type=bind,source="$GITHUB_WORKSPACE",target=/module,readonly "$CORE_IMAGE" /module/tests/template.php

@@ -1,0 +1,29 @@
+{% extends 'treatment/base.html.twig' %}
+{% block treatment_content %}
+<h2>{{ 'Treatment goal progress'|xlt }}</h2>
+<p>{{ 'Patient'|xlt }}: {{ plan.fname|text }} {{ plan.lname|text }} — {{ 'Plan version'|xlt }} {{ plan.version|text }}</p>
+<p>{{ 'Follow-up entries are separate observations. They do not change the plan or its finalized status.'|xlt }}</p>
+{% if error %}<div class="alert alert-danger">{{ error|text }}</div>{% endif %}
+{% if saved %}<div class="alert alert-success">{{ 'Progress entry saved.'|xlt }}</div>{% endif %}
+<a href="{{ webroot }}/interface/modules/custom_modules/oe-module-treatment-planner/public/index.php/treatment/view?id={{ plan.id|attr }}">{{ 'Return to treatment plan'|xlt }}</a>
+{% if can_record|default(false) %}
+<form method="post" class="my-3">
+ <input type="hidden" name="csrf_token_form" value="{{ csrf_token_form|attr }}">
+ <input type="hidden" name="expected_version" value="{{ form_version|attr }}">
+ <input type="hidden" name="request_key" value="{{ input.request_key|attr }}">
+ <p>{{ 'Selected follow-up encounter'|xlt }}: {{ followup_encounter|text }}</p>
+ <label for="objective">{{ 'Goal or objective being followed'|xlt }}</label>
+ <input class="form-control" id="objective" name="objective" required maxlength="255" value="{{ input.objective|attr }}">
+ <label for="progress-status">{{ 'Progress status'|xlt }}</label>
+ <select class="form-control" id="progress-status" name="status">{% for status in statuses %}<option value="{{ status|attr }}" {% if input.status == status %}selected{% endif %}>{{ status|replace({'_':' '})|xlt }}</option>{% endfor %}</select>
+ <label for="measure">{{ 'Measurement and date (optional)'|xlt }}</label><input class="form-control" id="measure" name="measure" maxlength="255" value="{{ input.measure|attr }}">
+ <label for="progress-note">{{ 'Follow-up observation'|xlt }}</label><textarea class="form-control" id="progress-note" name="note" required maxlength="4000">{{ input.note|text }}</textarea>
+ <button class="btn btn-primary my-2" type="submit">{{ 'Record progress'|xlt }}</button>
+</form>
+{% else %}<p>{{ 'Medical-record write permission is required to record progress.'|xlt }}</p>{% endif %}
+<h3>{{ 'Most recent 100 accessible progress entries'|xlt }}</h3>
+{% for entry in entries %}<article class="card my-2"><div class="card-body">
+ <h4>{{ entry.objective|text }}</h4><p>{{ entry.status|replace({'_':' '})|text }} — {{ entry.measure|text }}</p>
+ <p>{{ entry.note|nl2br }}</p><small>{{ entry.date_created|text }} — {{ entry.fname|text }} {{ entry.lname|text }} — {{ 'Encounter'|xlt }} {{ entry.encounter_id|text }} — {{ 'Plan version'|xlt }} {{ entry.plan_version|text }}</small>
+</div></article>{% else %}<p>{{ 'No progress entries yet.'|xlt }}</p>{% endfor %}
+{% endblock %}

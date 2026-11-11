@@ -201,7 +201,7 @@ class TemplateService
      * 
      * @return array IDs of created templates
      */
-    public function createDefaultTemplates(): array
+    public function createDefaultTemplates(int $providerId = 0): array
     {
         $createdIds = [];
         
@@ -233,7 +233,8 @@ EOT;
                 'Template for patients presenting with depressive symptoms',
                 $depressionTemplate,
                 ['depression', 'F32', 'F33'],
-                true
+                true,
+                $providerId
             );
         } catch (Exception $e) {
             // Log error but continue with other templates
@@ -267,7 +268,8 @@ EOT;
                 'Template for patients presenting with anxiety symptoms',
                 $anxietyTemplate,
                 ['anxiety', 'F41.1', 'F40'],
-                true
+                true,
+                $providerId
             );
         } catch (Exception $e) {
             // Log error but continue
@@ -301,7 +303,8 @@ EOT;
                 'Template for patients presenting with attention deficit symptoms',
                 $adhdTemplate,
                 ['ADHD', 'F90'],
-                true
+                true,
+                $providerId
             );
         } catch (Exception $e) {
             // Log error but continue

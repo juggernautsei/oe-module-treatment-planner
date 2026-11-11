@@ -5,19 +5,24 @@
     <div class="row">
         <div class="col-12">
             <h2>{{ "Edit Treatment Plan"|xlt }}</h2>
-            
+
             {% if error %}
                 <div class="alert alert-danger">
                     {{ error|xlt }}
                 </div>
             {% endif %}
-            
+
             {% if message %}
                 <div class="alert alert-success">
                     {{ message|xlt }}
                 </div>
             {% endif %}
-            
+
+            {% if missing_sections|default([]) %}
+            <div class="alert alert-warning">{{ "Expected sections not detected"|xlt }}: {{ missing_sections|join(', ')|text }}.
+              {% if plan.status == 'finalized' %}{{ "This finalized record remains read-only."|xlt }}{% else %}{{ "Complete these sections before approval or finalization."|xlt }}{% endif %}
+              {{ "This checks structure only; clinician review is still required."|xlt }}</div>
+            {% endif %}
             {% if plan %}
                 <div class="card mb-3">
                     <div class="card-header d-flex justify-content-between align-items-center">
@@ -27,10 +32,9 @@
                     <div class="card-body">
                         <div class="row mb-3">
                             <div class="col-md-4">
-                                <strong>{{ "Age"|xlt }}:</strong> 
-                                {% if plan.DOB %}
-                                    {% set age = "now"|date("Y") - plan.DOB|date("Y") %}
-                                    {{ age }} {{ "years"|xlt }}
+                                <strong>{{ "Age"|xlt }}:</strong>
+                                {% if plan.age is not null %}
+                                    {{ plan.age|text }} {{ "years"|xlt }}
                                 {% else %}
                                     {{ "Not specified"|xlt }}
                                 {% endif %}
@@ -42,38 +46,43 @@
                                 <strong>{{ "Version"|xlt }}:</strong> {{ plan.version|text }}
                             </div>
                         </div>
-                        
+
+                        {% if error %}
+                        <p>{{ "Your submitted version is"|xlt }} {{ form_version|text }}. {{ "The current saved version is"|xlt }} {{ plan.version|text }}.
+                          <a target="_blank" rel="noopener" href="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/treatment/view?id={{ plan.id|attr }}">{{ "Open saved plan in a new tab"|xlt }}</a></p>
+                        {% endif %}
                         <form method="post" action="" id="edit-form">
                             <input type="hidden" name="csrf_token_form" value="{{ csrf_token_form|attr }}">
                             <input type="hidden" name="plan_id" value="{{ plan.id|attr }}">
-                            
+                            <input type="hidden" name="expected_version" value="{{ form_version|attr }}">
+
                             <div class="form-group">
                                 <label for="status-select">{{ "Status"|xlt }}</label>
-                                <select class="form-control" id="status-select" name="status">
+                                <select class="form-control" id="status-select" name="status" {% if read_only %}disabled{% endif %}>
                                     {% for status_key, status_label in statuses %}
-                                        <option value="{{ status_key|attr }}" {% if status_key == plan.status %}selected{% endif %}>
+                                        <option value="{{ status_key|attr }}" {% if status_key == selected_status %}selected{% endif %}>
                                             {{ status_label|xlt }}
                                         </option>
                                     {% endfor %}
                                 </select>
                             </div>
-                            
+
                             <div class="form-group">
                                 <label for="content">{{ "Treatment Plan"|xlt }}</label>
-                                <textarea class="form-control" id="content" name="content" rows="20">{{ plan.content|text }}</textarea>
+                                <textarea class="form-control" id="content" name="content" rows="20" {% if read_only %}readonly{% endif %}>{{ editor_content|text }}</textarea>
                             </div>
-                            
+
                             <div class="form-group mt-4">
                                 <div class="row">
                                     <div class="col-md-8">
-                                        <button type="submit" name="submit_edit" value="1" class="btn btn-secondary">
+                                        {% if not read_only %}<button type="submit" name="submit_edit" value="1" class="btn btn-secondary">
                                             <i class="fas fa-save"></i> {{ "Save Changes"|xlt }}
                                         </button>
-                                        <button type="submit" name="submit_finalize" value="1" class="btn btn-success ml-2" 
-                                                onclick="return confirm('{{ "Are you sure you want to finalize this treatment plan? Once finalized, it will appear in the patient summary and may have limited editing capabilities."|xlt }}');">
+                                        {% if plan.status == 'approved' %}<button type="submit" name="submit_finalize" value="1" class="btn btn-success ml-2"
+                                                onclick="return confirm('{{ "Are you sure you want to finalize this treatment plan? Once finalized, it will appear in the patient summary and cannot be edited."|xlt }}');">
                                             <i class="fas fa-check-circle"></i> {{ "Finalize Treatment Plan"|xlt }}
-                                        </button>
-                                        <a href="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/treatment_view.php?id={{ plan.id }}" class="btn btn-outline-secondary ml-2">
+                                        </button>{% endif %}{% endif %}
+                                        <a href="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/treatment/view?id={{ plan.id }}" class="btn btn-outline-secondary ml-2">
                                             <i class="fas fa-times"></i> {{ "Cancel"|xlt }}
                                         </a>
                                     </div>
@@ -83,23 +92,24 @@
                                         </a>
                                     </div>
                                 </div>
-                                
+
                                 <!-- Help text for buttons -->
                                 <div class="row mt-2">
                                     <div class="col-12">
                                         <small class="text-muted">
                                             <i class="fas fa-info-circle"></i>
-                                            <strong>{{ "Save Changes"|xlt }}:</strong> {{ "Save your edits as a draft (can be edited later)"|xlt }} | 
+                                            <strong>{{ "Save Changes"|xlt }}:</strong> {{ "Save your edits as a draft (can be edited later)"|xlt }} |
                                             <strong>{{ "Finalize"|xlt }}:</strong> {{ "Save as final treatment plan (appears in patient summary)"|xlt }}
                                         </small>
                                     </div>
                                 </div>
                             </div>
+{% if not read_only|default(false) %}{% include 'treatment/review-checklist.twig' %}{% endif %}
                         </form>
                     </div>
                     <div class="card-footer">
                         <small>
-                            {{ "Created"|xlt }}: {{ plan.date_created|dateToTime|date('Y-m-d H:i:s') }} | 
+                            {{ "Created"|xlt }}: {{ plan.date_created|dateToTime|date('Y-m-d H:i:s') }} |
                             {{ "Updated"|xlt }}: {{ plan.date_updated|dateToTime|date('Y-m-d H:i:s') }} |
                             {{ "Provider"|xlt }}: {{ plan.provider_fname|text }} {{ plan.provider_lname|text }}
                         </small>
@@ -123,7 +133,7 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('edit-form').addEventListener('submit', function(e) {
         const originalStatus = '{{ plan.status|attr }}';
         const newStatus = document.getElementById('status-select').value;
-        
+
         if (originalStatus !== newStatus) {
             if (!confirm('{{ "You are about to change the status of this treatment plan. Continue?"|xlt }}')) {
                 e.preventDefault();
@@ -131,7 +141,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
     });
-    
+
     // Auto-save functionality could be added here in the future
 });
 </script>

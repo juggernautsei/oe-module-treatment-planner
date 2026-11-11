@@ -31,7 +31,10 @@
 */
 
 use OpenEMR\Core\AbstractModuleActionListener;
-use OpenEMR\Modules\WenoModule\Services\ModuleService;
+require_once __DIR__ . '/src/Services/SchemaService.php';
+require_once __DIR__ . '/src/Services/ErrorService.php';
+require_once __DIR__ . '/src/Exceptions/UserFacingException.php';
+use OpenEMR\Modules\TreatmentPlanner\Services\SchemaService;
 
 /* Allows maintenance of background tasks depending on Module Manager action. */
 
@@ -50,11 +53,13 @@ class ModuleManagerListener extends AbstractModuleActionListener
      */
     public function moduleManagerAction($methodName, $modId, string $currentActionStatus = 'Success'): string
     {
-        if (method_exists(self::class, $methodName)) {
-            return self::$methodName($modId, $currentActionStatus);
-        } else {
-            // no reason to report action method is missing.
-            return $currentActionStatus;
+        $actions = ['install', 'enable', 'disable', 'unregister', 'install_sql', 'upgrade_sql', 'help_requested'];
+        if (!in_array($methodName, $actions, true)) { return $currentActionStatus; }
+        if ($currentActionStatus !== 'Success') { return $currentActionStatus; }
+        try {
+            return $this->$methodName($modId, $currentActionStatus);
+        } catch (\Throwable $e) {
+            return 'Treatment Planner action failed. ' . \OpenEMR\Modules\TreatmentPlanner\Services\ErrorService::publicMessage($e, 'module_action');
         }
     }
 
@@ -69,7 +74,7 @@ class ModuleManagerListener extends AbstractModuleActionListener
     {
         // Module Manager will register this namespace.
         // You don't have to use the OpenEMR namespace. You can create your own namespace.
-        return 'OpenEMR\\Module\\TreatmentPlanner\\App\\';
+        return 'OpenEMR\\Modules\\TreatmentPlanner\\';
     }
 
     /**
@@ -88,15 +93,10 @@ class ModuleManagerListener extends AbstractModuleActionListener
      * @param $currentActionStatus
      * @return mixed
      */
-    private function install($modId, $currentActionStatus): mixed
+    private function install($modId, $currentActionStatus)
     {
-        $modService = new ModuleService();
-        /* setting the active ui flag here will allow the config button to show
-         * before enable. This is a good thing because it allows the user to
-         * configure the module before enabling it. However, if the module is disabled
-         * this flag is reset by MM.
-        */
-        $modService::setModuleState($modId, '0', '1');
+        SchemaService::migrate();
+        self::setModuleActiveState($modId, '0', '1');
         return $currentActionStatus;
     }
 
@@ -105,7 +105,7 @@ class ModuleManagerListener extends AbstractModuleActionListener
      * @param $currentActionStatus
      * @return mixed
      */
-    private function help_requested($modId, $currentActionStatus): mixed
+    private function help_requested($modId, $currentActionStatus)
     {
         // must call a script that implements a dialog to show help.
         // I can't find a way to override the Lamina's UI except using a dialog.
@@ -120,14 +120,9 @@ class ModuleManagerListener extends AbstractModuleActionListener
      * @param $currentActionStatus
      * @return mixed
      */
-    private function enable($modId, $currentActionStatus): mixed
+    private function enable($modId, $currentActionStatus)
     {
-        $logMessage = 'Skeleton Background tasks have been enabled';
-        // Register background services
-//        $sql = "UPDATE `background_services` SET `active` = '1' WHERE `name` = ? OR `name` = ? OR `name` = ?";
-//        $status = sqlQuery($sql, array('Skeleton_Send', 'Skeleton_Receive', 'Skeleton_Send_Receive'));
-//        error_log($logMessage . ' ' . text($status));
-        // Return the current action status from Module Manager in case of error from its action.
+        SchemaService::migrate();
         return $currentActionStatus;
     }
 
@@ -136,10 +131,10 @@ class ModuleManagerListener extends AbstractModuleActionListener
      * @param $currentActionStatus
      * @return mixed
      */
-    private function disable($modId, $currentActionStatus): mixed
+    private function disable($modId, $currentActionStatus)
     {
         // allow config button to show before enable.
-        ModuleService::setModuleState($modId, '0', '1');
+        self::setModuleActiveState($modId, '0', '1');
         return $currentActionStatus;
     }
 
@@ -148,124 +143,10 @@ class ModuleManagerListener extends AbstractModuleActionListener
      * @param $currentActionStatus
      * @return mixed
      */
-    private function unregister($modId, $currentActionStatus): mixed
+    private function unregister($modId, $currentActionStatus)
     {
-        /*
-         * This function removes all data that was created by the Treatment Planner module.
-         * This includes custom tables, layout options, and list options.
-         */
-        $logMessage = 'Treatment Planner module cleanup initiated: '; // Initialize log message
-        $errors = [];
-        
-        try {
-            // Drop module-specific tables
-            $tables = [
-                'module_treatment_planner_config',
-                'module_treatment_planner_plans',
-                'module_treatment_planner_templates',
-                'module_treatment_planner_usage'
-            ];
-            
-            foreach ($tables as $table) {
-                $sql = "DROP TABLE IF EXISTS `$table`";
-                $result = sqlQuery($sql);
-                if ($result === false) {
-                    $errors[] = "Failed to drop table: $table";
-                    $logMessage .= "DROP TABLE `$table`: Failed\n";
-                } else {
-                    $logMessage .= "DROP TABLE `$table`: Success\n";
-                }
-            }
-            
-            // Clean up layout options for LBF_MHINTAKE form
-            $sql = "DELETE FROM `layout_options` WHERE `form_id` = 'LBF_MHINTAKE'";
-            $result = sqlQuery($sql);
-            if ($result === false) {
-                $errors[] = "Failed to delete layout_options for LBF_MHINTAKE";
-                $logMessage .= "DELETE layout_options for LBF_MHINTAKE: Failed\n";
-            } else {
-                $logMessage .= "DELETE layout_options for LBF_MHINTAKE: Success\n";
-            }
-            
-            // Clean up layout group properties for LBF_MHINTAKE form
-            $sql = "DELETE FROM `layout_group_properties` WHERE `grp_form_id` = 'LBF_MHINTAKE'";
-            $result = sqlQuery($sql);
-            if ($result === false) {
-                $errors[] = "Failed to delete layout_group_properties for LBF_MHINTAKE";
-                $logMessage .= "DELETE layout_group_properties for LBF_MHINTAKE: Failed\n";
-            } else {
-                $logMessage .= "DELETE layout_group_properties for LBF_MHINTAKE: Success\n";
-            }
-            
-            // Clean up mental health assessment list options
-            $mentalHealthLists = [
-                'mental_status_affect_amplitude',
-                'mental_status_affect_appropriateness',
-                'mental_status_affect_intensity',
-                'mental_status_affect_mobility',
-                'mental_status_affect_range',
-                'mental_status_appearance',
-                'mental_status_attitude',
-                'mental_status_build',
-                'mental_status_cognition_insight',
-                'mental_status_eye_contact',
-                'mental_status_gait',
-                'mental_status_hygiene',
-                'mental_status_intelligence',
-                'mental_status_judgment',
-                'mental_status_long_term',
-                'mental_status_mood',
-                'mental_status_orientation',
-                'mental_status_phobias',
-                'mental_status_psychomotor',
-                'mental_status_short_term',
-                'mental_status_speech_rate',
-                'mental_status_speech_rhythm_tonality',
-                'mental_status_speech_volume',
-                'mental_status_thought_content',
-                'mental_status_thought_process',
-                'RiskProtection',
-                'risklevel'
-            ];
-            
-            foreach ($mentalHealthLists as $listId) {
-                // Delete list options
-                $sql = "DELETE FROM `list_options` WHERE `list_id` = ?";
-                $result = sqlQuery($sql, [$listId]);
-                if ($result === false) {
-                    $errors[] = "Failed to delete list_options for: $listId";
-                    $logMessage .= "DELETE list_options for $listId: Failed\n";
-                } else {
-                    $logMessage .= "DELETE list_options for $listId: Success\n";
-                }
-                
-                // Delete from lists registry
-                $sql = "DELETE FROM `list_options` WHERE `list_id` = 'lists' AND `option_id` = ?";
-                $result = sqlQuery($sql, [$listId]);
-                if ($result === false) {
-                    $errors[] = "Failed to delete from lists registry for: $listId";
-                    $logMessage .= "DELETE from lists registry for $listId: Failed\n";
-                } else {
-                    $logMessage .= "DELETE from lists registry for $listId: Success\n";
-                }
-            }
-            
-            // If there were any errors, update the status
-            if (!empty($errors)) {
-                $currentActionStatus = 'Partial cleanup completed with errors: ' . implode('; ', $errors);
-                $logMessage .= "Cleanup completed with " . count($errors) . " errors\n";
-            } else {
-                $logMessage .= "Treatment Planner module cleanup completed successfully\n";
-            }
-            
-        } catch (Exception $e) {
-            $currentActionStatus = 'Error during cleanup: ' . $e->getMessage();
-            $logMessage .= "Exception during cleanup: " . $e->getMessage() . "\n";
-        }
-        
-        // Log the cleanup results
-        error_log(text($logMessage));
-        
+        // Unregistering must never erase clinical records or shared OpenEMR layouts.
+        // Permanent removal is a separate, administrator-managed retention operation.
         return $currentActionStatus;
     }
 
@@ -274,8 +155,9 @@ class ModuleManagerListener extends AbstractModuleActionListener
      * @param $currentActionStatus
      * @return mixed
      */
-    private function install_sql($modId, $currentActionStatus): mixed
+    private function install_sql($modId, $currentActionStatus)
     {
+        SchemaService::migrate();
         return $currentActionStatus;
     }
 
@@ -284,8 +166,9 @@ class ModuleManagerListener extends AbstractModuleActionListener
      * @param $currentActionStatus
      * @return mixed
      */
-    private function upgrade_sql($modId, $currentActionStatus): mixed
+    private function upgrade_sql($modId, $currentActionStatus)
     {
+        SchemaService::migrate();
         return $currentActionStatus;
     }
 }

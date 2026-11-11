@@ -24,5 +24,24 @@
     "config": {
         "optimize-autoloader": true,
         "sort-packages": true
+    },
+    "require-dev": {
+        "twig/twig": "^3.0"
+    },
+    "scripts": {
+        "test": [
+            "@php tests/review3.php",
+            "@php tests/create-flow.php",
+            "@php tests/review4.php",
+            "@php tests/review5.php",
+            "@php tests/template.php",
+            "@php tests/session.php native",
+            "@php tests/session.php wrapper",
+            "@php tests/api-errors.php",
+            "@php tests/print-content.php",
+            "@php tests/clinical-support.php",
+            "@php tests/clinical-permissions.php"
+        ],
+        "test:database": "@php tests/database.php"
     }
 }

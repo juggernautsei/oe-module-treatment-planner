@@ -15,8 +15,13 @@ $module_name = 'oe-module-treatment-planner';
 require_once dirname(__FILE__, 4) . '/globals.php';
 
 use OpenEMR\Core\Header;
-use OpenEMR\Common\Csrf\CsrfUtils;
+use OpenEMR\Modules\TreatmentPlanner\Services\CsrfService;
 use OpenEMR\Modules\TreatmentPlanner\Services\ConfigService;
+
+if (!\OpenEMR\Common\Acl\AclMain::aclCheckCore('admin', 'manage_modules')) {
+    http_response_code(403);
+    exit(xlt('Access denied'));
+}
 
 // Instantiate the ConfigService for API key management
 $configService = new ConfigService();
@@ -29,53 +34,43 @@ $model = $configService->getModel();
 $temperature = $configService->getTemperature();
 $testConnectionResult = null;
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Verify CSRF
-    if (!CsrfUtils::verifyCsrfToken($_POST["csrf_token_form"])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['save_assessment_profile'])) {
+    $token = is_string($_POST['csrf_token_form'] ?? null) ? $_POST['csrf_token_form'] : '';
+    if (!CsrfService::verifyCsrfToken($token)) {
         $errorMessage = xl('Authentication Error');
     } else {
-        $updated = false;
-
-        // Process the API key
-        if (isset($_POST['api_key']) && !empty($_POST['api_key'])) {
-            $apiKey = trim($_POST['api_key']);
-            
-            if ($configService->saveApiKey($apiKey)) {
-                $updated = true;
-                $apiKey = ''; // Clear form for security
-            } else {
-                $errorMessage = xl('Error saving API Key');
+        try {
+            // Validate before writing any settings; invalid values are not silently clamped.
+            $newTemperature = ConfigService::validateTemperature($_POST['temperature'] ?? $temperature);
+            $newModel = is_string($_POST['model'] ?? null) ? trim($_POST['model']) : $model;
+            $newKey = is_string($_POST['api_key'] ?? null) ? trim($_POST['api_key']) : '';
+            if ($newModel === '') { throw new \OpenEMR\Modules\TreatmentPlanner\Exceptions\UserFacingException('Select a model.'); }
+            if ($newKey !== '' && !$configService->saveApiKey($newKey)) { throw new RuntimeException('Could not save API key.'); }
+            if (!$configService->saveModel($newModel) || !$configService->saveTemperature($newTemperature)) {
+                throw new RuntimeException('Could not save settings.');
             }
-        }
-        
-        // Process the model selection
-        if (isset($_POST['model'])) {
-            $newModel = trim($_POST['model']);
-            if (!empty($newModel)) {
-                if ($configService->saveModel($newModel)) {
-                    $model = $newModel;
-                    $updated = true;
-                }
-            }
-        }
-        
-        // Process the temperature setting
-        if (isset($_POST['temperature'])) {
-            $newTemperature = floatval($_POST['temperature']);
-            if ($configService->saveTemperature($newTemperature)) {
-                $temperature = $newTemperature;
-                $updated = true;
-            }
-        }
-        
-        // Test connection if requested
-        if (isset($_POST['test_connection'])) {
-            $testConnectionResult = $configService->testApiConnection();
-        } else if ($updated) {
-            $successMessage = xl('Configuration saved successfully');
+            $model = $newModel;
+            $temperature = $newTemperature;
+            if (isset($_POST['test_connection'])) { $testConnectionResult = $configService->testApiConnection(); }
+            else { $successMessage = xl('Configuration saved successfully'); }
+        } catch (\OpenEMR\Modules\TreatmentPlanner\Exceptions\UserFacingException $e) {
+            $errorMessage = xl($e->getMessage());
+        } catch (Throwable $e) {
+            $errorMessage = \OpenEMR\Modules\TreatmentPlanner\Services\ErrorService::publicMessage($e, 'save_config');
         }
     }
 }
+
+$assessmentProfile = ['form' => 'LBF_MHINTAKE', 'map' => []];
+try {
+    $profiles = new \OpenEMR\Modules\TreatmentPlanner\Services\AssessmentProfileService();
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_assessment_profile'])) {
+        if (!CsrfService::verifyCsrfToken($_POST['csrf_token_form'] ?? '', 'treatment-planner-profile')) { throw new \OpenEMR\Modules\TreatmentPlanner\Exceptions\UserFacingException('Authentication Error'); }
+        $profiles->save(is_string($_POST['assessment_form'] ?? null) ? trim($_POST['assessment_form']) : '', is_string($_POST['assessment_mapping'] ?? null) ? $_POST['assessment_mapping'] : '');
+        $successMessage = xl('Assessment profile saved. Existing plan evidence is unchanged.');
+    }
+    $assessmentProfile = $profiles->current();
+} catch (Throwable $e) { $errorMessage = \OpenEMR\Modules\TreatmentPlanner\Services\ErrorService::publicMessage($e, 'assessment_profile'); }
 
 // Get current API key status (configured or not)
 $apiKeyConfigured = $configService->isApiKeyConfigured();
@@ -119,7 +114,7 @@ $apiKeyConfigured = $configService->isApiKeyConfigured();
                         <?php endif; ?>
                         
                         <form method="post" action="" id="config-form">
-                            <input type="hidden" name="csrf_token_form" value="<?php echo attr(CsrfUtils::collectCsrfToken()); ?>">
+                            <input type="hidden" name="csrf_token_form" value="<?php echo attr(CsrfService::collectCsrfToken()); ?>">
                             
                             <div class="form-group">
                                 <label for="api-key"><?php echo xlt('OpenAI API Key'); ?></label>
@@ -146,6 +141,8 @@ $apiKeyConfigured = $configService->isApiKeyConfigured();
                             <div class="form-group">
                                 <label for="model"><?php echo xlt('OpenAI Model'); ?></label>
                                 <select class="form-control" id="model" name="model">
+                                    <option value="gpt-4o-mini" <?php echo ($model === 'gpt-4o-mini') ? 'selected' : ''; ?>>GPT-4o mini</option>
+                                    <option value="gpt-4o" <?php echo ($model === 'gpt-4o') ? 'selected' : ''; ?>>GPT-4o</option>
                                     <option value="gpt-4" <?php echo ($model === 'gpt-4') ? 'selected' : ''; ?>>GPT-4</option>
                                     <option value="gpt-4-turbo" <?php echo ($model === 'gpt-4-turbo') ? 'selected' : ''; ?>>GPT-4 Turbo</option>
                                     <option value="gpt-3.5-turbo" <?php echo ($model === 'gpt-3.5-turbo') ? 'selected' : ''; ?>>GPT-3.5 Turbo</option>
@@ -158,9 +155,9 @@ $apiKeyConfigured = $configService->isApiKeyConfigured();
                             <div class="form-group">
                                 <label for="temperature"><?php echo xlt('Temperature'); ?></label>
                                 <input type="number" class="form-control" id="temperature" name="temperature" 
-                                       min="0" max="2" step="0.1" value="<?php echo attr($temperature); ?>">
+                                       min="0" max="1" step="0.1" value="<?php echo attr($temperature); ?>">
                                 <small class="form-text text-muted">
-                                    <?php echo xlt('Controls randomness: 0 = deterministic, 2 = very random. Recommended: 0.7'); ?>
+                                    <?php echo xlt('Controls randomness: 0 = least variable, 1 = more variable. Recommended: 0.7'); ?>
                                 </small>
                             </div>
                             
@@ -181,14 +178,15 @@ $apiKeyConfigured = $configService->isApiKeyConfigured();
                             <div class="col-md-6">
                                 <h5><?php echo xlt('Usage Information'); ?></h5>
                                 <p class="small text-muted">
-                                    <?php echo xlt('This module uses OpenAI\'s API to generate treatment plans. Usage is tracked and costs are based on OpenAI\'s pricing.'); ?>
+                                    <?php echo xlt('This module uses OpenAI\'s API to generate treatment plans. Usage is tracked. Cost estimates require administrator-configured model rates; otherwise cost is unavailable.'); ?>
                                 </p>
                             </div>
                             <div class="col-md-6">
                                 <h5><?php echo xlt('Quick Links'); ?></h5>
                                 <ul class="list-unstyled small">
-                                    <li><a href="test_setup.php"><?php echo xlt('Test Module Setup'); ?></a></li>
-                                    <li><a href="public/index.php?route=treatment/create"><?php echo xlt('Create Treatment Plan'); ?></a></li>
+                                    <li><a href="retry_usage.php"><?php echo xlt('Retry Usage Recording'); ?></a></li>
+                                    <li><a href="initialize_templates.php"><?php echo xlt('Initialize Default Templates'); ?></a></li>
+                                    <li><a href="public/index.php/treatment/create"><?php echo xlt('Create Treatment Plan'); ?></a></li>
                                 </ul>
                             </div>
                         </div>
@@ -214,5 +212,15 @@ $apiKeyConfigured = $configService->isApiKeyConfigured();
         });
     });
     </script>
+
+<div class="container my-4"><h3><?php echo xlt('Assessment form profile'); ?></h3>
+<p><?php echo xlt('Choose one installed layout-based assessment form. Map canonical Treatment Planner field IDs to source field IDs using a JSON object. Unmapped matching field IDs are used directly. This does not install or clinically validate a form.'); ?></p>
+<form method="post">
+<input type="hidden" name="csrf_token_form" value="<?php echo attr(CsrfService::collectCsrfToken('treatment-planner-profile')); ?>">
+<label for="assessment-form"><?php echo xlt('Assessment form ID'); ?></label><input class="form-control" id="assessment-form" name="assessment_form" value="<?php echo attr($assessmentProfile['form']); ?>" required maxlength="31">
+<label for="assessment-mapping"><?php echo xlt('Field mapping JSON'); ?></label><textarea class="form-control" id="assessment-mapping" name="assessment_mapping" rows="5"><?php echo text(json_encode((object)$assessmentProfile['map'], JSON_PRETTY_PRINT)); ?></textarea>
+<small><?php echo xlt('Example: {"reason_visit":"chief_complaint","treatment_goals":"patient_goals"}. Canonical field IDs are documented in docs/ASSESSMENT-PROFILES.md.'); ?></small>
+<button class="btn btn-primary d-block my-2" name="save_assessment_profile" value="1" type="submit"><?php echo xlt('Save assessment profile'); ?></button>
+</form></div>
 </body>
 </html>

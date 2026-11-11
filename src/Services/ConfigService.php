@@ -12,6 +12,7 @@
  */
 
 namespace OpenEMR\Modules\TreatmentPlanner\Services;
+use OpenEMR\Modules\TreatmentPlanner\Exceptions\UserFacingException;
 
 use OpenEMR\Common\Crypto\CryptoGen;
 use OpenEMR\Common\Database\QueryUtils;
@@ -109,10 +110,19 @@ class ConfigService
      */
     public function saveTemperature(float $temperature): bool
     {
-        $temperature = min(1.0, max(0.0, $temperature)); // Ensure value is between 0 and 1
+        $temperature = self::validateTemperature($temperature);
         return $this->saveSetting(self::TEMPERATURE_SETTING, (string)$temperature);
     }
     
+    public static function validateTemperature($value): float
+    {
+        if ((!is_string($value) && !is_float($value) && !is_int($value)) || !is_numeric($value)
+            || !is_finite((float)$value) || (float)$value < 0 || (float)$value > 1) {
+            throw new UserFacingException('Temperature must be a number between 0 and 1.');
+        }
+        return (float)$value;
+    }
+
     /**
      * Get the configured temperature
      * 
@@ -209,6 +219,8 @@ class ConfigService
         
         // Simple cURL request to test the API connection
         $ch = curl_init('https://api.openai.com/v1/models');
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
             'Content-Type: application/json',

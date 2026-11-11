@@ -12,6 +12,7 @@
  */
 
 namespace OpenEMR\Modules\TreatmentPlanner\Services;
+use OpenEMR\Modules\TreatmentPlanner\Exceptions\UserFacingException;
 
 use OpenEMR\Common\Database\QueryUtils;
 use OpenEMR\Services\PatientService;
@@ -29,6 +30,8 @@ require_once($GLOBALS['fileroot'] . '/library/forms.inc.php');
  */
 class TreatmentService
 {
+    private ?GenerationRequestService $requestService = null;
+    private ?PlanStructureService $structureService = null;
     private OpenAIService $openAIService;
     private PatientService $patientService;
     private EncounterService $encounterService;
@@ -50,12 +53,17 @@ class TreatmentService
     public function __construct(
         OpenAIService $openAIService,
         PatientService $patientService,
-        EncounterService $encounterService
+        EncounterService $encounterService,
+        ?AssessmentService $assessmentService = null,
+        ?GenerationRequestService $requestService = null,
+        ?PlanStructureService $structureService = null
     ) {
         $this->openAIService = $openAIService;
         $this->patientService = $patientService;
         $this->encounterService = $encounterService;
-        $this->assessmentService = new AssessmentService();
+        $this->assessmentService = $assessmentService ?? ModuleServiceFactory::assessment();
+        $this->requestService = $requestService ?? ModuleServiceFactory::requests();
+        $this->structureService = $structureService ?? ModuleServiceFactory::structure();
     }
     
     /**
@@ -75,34 +83,70 @@ class TreatmentService
         int $encounterId,
         string $observations,
         array $options = [],
-        int $providerId = 0
+        int $providerId = 0,
+        string $requestKey = ''
     ): array {
-        // Get comprehensive assessment data for the AI prompt
-        $assessmentData = $this->assessmentService->getComprehensiveAssessmentData($patientId, $encounterId);
-        
-        // Generate treatment plan using OpenAI
-        $planData = $this->openAIService->generateTreatmentPlan(
-            $assessmentData,
-            $observations,
-            $options,
-            $providerId
-        );
-        
-        // Store the treatment plan in the database
-        $planId = $this->storeTreatmentPlan(
-            $patientId,
-            $encounterId,
-            $planData['content'],
-            $planData['sections'],
-            $providerId
-        );
-        
-        // Add the plan ID to the data
-        $planData['id'] = $planId;
-        
-        return $planData;
+        AccessService::assertPatient($patientId, true, $encounterId);
+        if ($encounterId <= 0) {
+            throw new UserFacingException('Select an encounter before generating a plan.');
+        }
+        if (mb_strlen($observations) > 20000) {
+            throw new UserFacingException('Clinical observations must be 20000 characters or fewer.');
+        }
+        SchemaService::assertReady();
+        $requests = $this->requestService ?? ModuleServiceFactory::requests();
+        $existingId = $requests->begin($requestKey, $patientId, $encounterId, $providerId, $observations);
+        if ($existingId !== null) {
+            $existing = $this->getTreatmentPlan($existingId);
+            if (!$existing) { throw new UserFacingException('The previously generated plan is unavailable. Contact an administrator.'); }
+            return $existing;
+        }
+        try {
+            $assessmentData = $this->assessmentService->getComprehensiveAssessmentData($patientId, $encounterId);
+            $snapshot = $this->assessmentService->getLastSnapshot();
+            if (!$snapshot) { throw new UserFacingException('Assessment evidence is unavailable. Reload the assessment before generation.'); }
+            $previewHash = $options['assessment_fingerprint'] ?? '';
+            if (!is_string($previewHash) || !hash_equals(AssessmentEvidenceService::fingerprint($snapshot), $previewHash)) {
+                throw new UserFacingException('The assessment changed or was not previewed. Reload the create form and review its current inputs.');
+            }
+            $gapsAcknowledged = ($options['acknowledge_missing'] ?? false) === true;
+            AssessmentEvidenceService::assertReady($snapshot, $gapsAcknowledged);
+            if (trim($observations) !== '') {
+                $snapshot['sources'][] = ['reference'=>'O1', 'field'=>'additional_observations', 'source_field'=>'submitted observations',
+                    'label'=>'Additional observations at generation', 'value'=>$observations, 'documented'=>true];
+            }
+            $assessmentData .= AssessmentEvidenceService::promptSources($snapshot);
+            $planData = $this->openAIService->generateTreatmentPlan($assessmentData, $observations, $options, $providerId);
+            QueryUtils::sqlStatementThrowException('START TRANSACTION');
+            try {
+                $planId = $this->storeTreatmentPlan($patientId, $encounterId, $planData['content'], $planData['sections'], $providerId, $planData['metadata'] ?? []);
+                (new AssessmentEvidenceService())->save($planId, $snapshot, $observations, $gapsAcknowledged);
+                $requests->complete($requestKey, $planId);
+                QueryUtils::sqlStatementThrowException('COMMIT');
+            } catch (\Throwable $e) {
+                QueryUtils::sqlStatementThrowException('ROLLBACK');
+                throw $e;
+            }
+            $planData['id'] = $planId;
+            return $planData;
+        } catch (\Throwable $e) {
+            // A timeout or worker failure may already have incurred a charge.
+            // Keep the request consumed rather than silently repeating the call.
+            try { $requests->fail($requestKey); } catch (\Throwable $trackingError) {
+                error_log('Unable to mark a generation request failed; it remains consumed.');
+            }
+            throw $e;
+        }
     }
-    
+
+    public function previewAssessment(int $patientId, int $encounterId): array
+    {
+        AccessService::assertPatient($patientId, true, $encounterId);
+        if ($encounterId <= 0) { throw new UserFacingException('Select an encounter before preparing a plan.'); }
+        $this->assessmentService->getComprehensiveAssessmentData($patientId, $encounterId);
+        return $this->assessmentService->getLastSnapshot() ?? [];
+    }
+
     /**
      * Store a treatment plan in the database
      * 
@@ -120,7 +164,8 @@ class TreatmentService
         int $encounterId,
         string $content,
         array $sections,
-        int $providerId
+        int $providerId,
+        array $metadata = []
     ): int {
         // Prepare JSON for sections
         $sectionsJson = json_encode($sections);
@@ -132,8 +177,8 @@ class TreatmentService
         // Store the plan
         $sql = "INSERT INTO `module_treatment_planner_plans` 
                 (`patient_id`, `encounter_id`, `provider_id`, `content`, `sections`,
-                 `version`, `status`, `date_created`, `date_updated`) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())";
+                 `version`, `status`, `date_created`, `date_updated`, `generation_metadata`)
+                VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), ?)";
         
         $params = [
             $patientId,
@@ -142,33 +187,25 @@ class TreatmentService
             $content,
             $sectionsJson,
             $version,
-            $status
+            $status,
+            GenerationMetadataService::encode($metadata)
         ];
         
         $planId = QueryUtils::sqlInsert($sql, $params);
         
         if (!$planId) {
-            throw new Exception(xlt('Failed to store treatment plan'));
+            throw new UserFacingException(xlt('Failed to store treatment plan'));
         }
         
-        // Add the treatment plan as a form in the encounter
+        // Required part of the surrounding transaction: never report a detached plan as success.
         try {
-            addForm(
-                $encounterId,           // encounter
-                'Treatment Plan',       // form_name
-                $planId,               // form_id (the treatment plan ID)
-                'treatment_planner',   // formdir (directory/module identifier)
-                $patientId,            // pid
-                '1',                   // authorized (1 = authorized since created by provider)
-                'NOW()',               // date (use current timestamp)
-                $_SESSION['authUser'] ?? '', // user (current user)
-                $_SESSION['authProvider'] ?? '' // group (current provider)
-            );
-        } catch (Exception $e) {
-            // Log the error but don't fail the treatment plan creation
-            error_log("Failed to add treatment plan to forms table: " . $e->getMessage());
+            $formId = addForm($encounterId, 'Treatment Plan', $planId, 'treatment_planner', $patientId,
+                '1', 'NOW()', SessionContext::get('authUser', ''), SessionContext::get('authProvider', ''));
+            if (!$formId) { throw new UserFacingException('Encounter form registration returned no identifier.'); }
+        } catch (\Throwable $e) {
+            throw new UserFacingException('Unable to link the treatment plan to the encounter. The plan was not saved; check the server log before starting another generation.', 0, $e);
         }
-        
+
         return $planId;
     }
     
@@ -184,64 +221,77 @@ class TreatmentService
      */
     public function updateTreatmentPlan(int $planId, array $data, int $providerId): bool
     {
-        // First get the current plan to check permissions and create a new version if needed
-        $currentPlan = $this->getTreatmentPlan($planId);
-        
-        if (!$currentPlan) {
-            throw new Exception(xlt('Treatment plan not found'));
-        }
-        
-        $updateContent = isset($data['content']) && $data['content'] !== $currentPlan['content'];
-        $updateStatus = isset($data['status']) && $data['status'] !== $currentPlan['status'];
-        
-        // If we're updating content, create a new version
-        if ($updateContent) {
-            $version = $currentPlan['version'] + 1;
-        } else {
-            $version = $currentPlan['version'];
-        }
-        
-        // Build the SQL update statement
-        $sql = "UPDATE `module_treatment_planner_plans` SET ";
-        $updates = [];
-        $params = [];
-        
-        if ($updateContent) {
-            $updates[] = "`content` = ?";
-            $params[] = $data['content'];
-            
-            // Re-extract sections if content is updated
-            if (!empty($data['content'])) {
-                // Note: In a real implementation, we'd need to extract sections from the updated content
-                // For now, we'll just store an empty object
-                $sections = [];
-                $updates[] = "`sections` = ?";
-                $params[] = json_encode($sections);
+        SchemaService::assertReady();
+        // Lock the row so concurrent edits cannot silently overwrite one another.
+        QueryUtils::sqlStatementThrowException('START TRANSACTION');
+        try {
+            $current = QueryUtils::querySingleRow(
+                'SELECT * FROM module_treatment_planner_plans WHERE id = ? FOR UPDATE', [$planId]
+            );
+            if (!$current) {
+                throw new UserFacingException('Treatment plan not found');
             }
-            
-            $updates[] = "`version` = ?";
-            $params[] = $version;
+            AccessService::assertPatient((int)$current['patient_id'], true, (int)$current['encounter_id']);
+            if ($providerId !== (int)(SessionContext::get('authUserID', 0)) || $providerId <= 0) {
+                throw new UserFacingException('Invalid author');
+            }
+            if ((int)($data['expected_version'] ?? 0) !== (int)$current['version']) {
+                throw new UserFacingException('This plan changed. Reload it before saving.');
+            }
+            if ($current['status'] === self::STATUS_FINALIZED) {
+                throw new UserFacingException('Finalized plans are read-only.');
+            }
+            $content = $data['content'] ?? $current['content'];
+            $status = $data['status'] ?? $current['status'];
+            $changed = $content !== $current['content'];
+            $transitions = [
+                self::STATUS_DRAFT => [self::STATUS_PENDING_REVIEW],
+                self::STATUS_PENDING_REVIEW => [self::STATUS_DRAFT, self::STATUS_APPROVED],
+                self::STATUS_APPROVED => [self::STATUS_DRAFT, self::STATUS_PENDING_REVIEW, self::STATUS_FINALIZED]
+            ];
+            if ($status !== $current['status'] && !in_array($status, $transitions[$current['status']] ?? [], true)) {
+                throw new UserFacingException('Invalid treatment plan status transition.');
+            }
+            if (in_array($status, [self::STATUS_APPROVED, self::STATUS_FINALIZED], true)) {
+                AccessService::assertReviewer();
+                if ($changed) {
+                    throw new UserFacingException('Save content changes as a draft before approval.');
+                }
+            }
+            if (in_array($status, [self::STATUS_APPROVED, self::STATUS_FINALIZED], true)) {
+                ($this->structureService ?? ModuleServiceFactory::structure())->assertComplete($content);
+            }
+            if ($changed && $status !== self::STATUS_DRAFT) {
+                throw new UserFacingException('Content changes must return the plan to draft.');
+            }
+            if (trim(strip_tags($content)) === '') {
+                throw new UserFacingException('Treatment plan content cannot be empty.');
+            }
+            if (in_array($status, [self::STATUS_APPROVED, self::STATUS_FINALIZED], true)) {
+                (new ReviewChecklistService())->record($planId, (int)$current['version'] + 1, $providerId, $status, $data);
+            }
+            // Save the previous state, including original attribution, before overwriting.
+            QueryUtils::sqlStatementThrowException(
+                'INSERT INTO module_treatment_planner_revisions
+                 (plan_id, version, content, sections, status, provider_id, date_updated, changed_by, date_archived)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())',
+                [$planId, $current['version'], $current['content'], $current['sections'],
+                 $current['status'], $current['provider_id'], $current['date_updated'], $providerId]
+            );
+            $sections = $changed ? json_encode($this->openAIService->extractSections($content)) : $current['sections'];
+            QueryUtils::sqlStatementThrowException(
+                'UPDATE module_treatment_planner_plans SET content = ?, sections = ?, status = ?,
+                 version = version + 1, date_updated = NOW() WHERE id = ?',
+                [$content, $sections, $status, $planId]
+            );
+            QueryUtils::sqlStatementThrowException('COMMIT');
+            return true;
+        } catch (\Throwable $e) {
+            QueryUtils::sqlStatementThrowException('ROLLBACK');
+            throw $e;
         }
-        
-        if ($updateStatus) {
-            $updates[] = "`status` = ?";
-            $params[] = $data['status'];
-        }
-        
-        // Always update the provider and timestamp
-        $updates[] = "`provider_id` = ?";
-        $params[] = $providerId;
-        
-        $updates[] = "`date_updated` = NOW()";
-        
-        $sql .= implode(', ', $updates);
-        $sql .= " WHERE `id` = ?";
-        $params[] = $planId;
-        
-        $result = QueryUtils::sqlStatementThrowException($sql, $params);
-        return $result !== false;
     }
-    
+
     /**
      * Get a treatment plan by ID
      * 
@@ -251,7 +301,7 @@ class TreatmentService
     public function getTreatmentPlan(int $planId): ?array
     {
         $sql = "SELECT p.*, 
-                       pat.fname, pat.lname, pat.DOB,
+                       pat.fname, pat.lname, pat.DOB, pat.sex,
                        prov.fname AS provider_fname, prov.lname AS provider_lname,
                        enc.date AS encounter_date
                 FROM `module_treatment_planner_plans` p
@@ -263,6 +313,9 @@ class TreatmentService
         $result = QueryUtils::querySingleRow($sql, [$planId]);
         
         if ($result) {
+            AccessService::assertPatient((int)$result['patient_id'], false, (int)$result['encounter_id']);
+            $result['generation_metadata'] = json_decode($result['generation_metadata'] ?? 'null', true);
+            $result['age'] = PatientAgeService::calculate($result['DOB'] ?? null);
             // Decode the sections JSON
             $result['sections'] = json_decode($result['sections'], true);
         }
@@ -279,6 +332,7 @@ class TreatmentService
      */
     public function getPatientTreatmentPlans(int $patientId, int $encounterId = 0): array
     {
+        AccessService::assertPatient($patientId, false, $encounterId);
         $sql = "SELECT p.id, p.encounter_id, p.version, p.status, p.date_created, p.date_updated,
                        prov.fname AS provider_fname, prov.lname AS provider_lname,
                        enc.date AS encounter_date
@@ -296,9 +350,45 @@ class TreatmentService
         
         $sql .= " ORDER BY p.date_created DESC";
         
-        return QueryUtils::fetchRecords($sql, $params);
+        $plans = QueryUtils::fetchRecords($sql, $params);
+        return array_values(array_filter($plans, function ($plan) use ($patientId) {
+            try {
+                AccessService::assertPatient($patientId, false, (int)$plan['encounter_id']);
+                return true;
+            } catch (\RuntimeException $e) {
+                return false;
+            }
+        }));
     }
     
+    /** Patient-scoped snapshots, paginated without exposing other charts. */
+    public function getRevisionHistory(int $planId, int $page = 1): array
+    {
+        $plan = $this->getTreatmentPlan($planId);
+        if (!$plan) { throw new UserFacingException('Treatment plan not found'); }
+        SchemaService::assertReady();
+        $page = max(1, $page);
+        $count = QueryUtils::querySingleRow('SELECT COUNT(*) AS total FROM module_treatment_planner_revisions WHERE plan_id = ?', [$planId]);
+        $total = (int)($count['total'] ?? 0);
+        $pages = max(1, (int)ceil($total / 25));
+        $page = min($page, $pages);
+        $offset = ($page - 1) * 25;
+        $rows = QueryUtils::fetchRecords('SELECT r.*, CONCAT(u.fname, \' \', u.lname) AS archived_by_name
+            FROM module_treatment_planner_revisions r LEFT JOIN users u ON r.changed_by = u.id
+            WHERE r.plan_id = ? ORDER BY r.version DESC LIMIT 25 OFFSET ' . $offset, [$planId]);
+        return ['plan' => $plan, 'revisions' => $rows, 'page' => $page, 'pages' => $pages, 'total' => $total];
+    }
+
+    public function getRevision(int $planId, int $version): array
+    {
+        $plan = $this->getTreatmentPlan($planId);
+        if (!$plan) { throw new UserFacingException('Treatment plan not found'); }
+        if ($version === (int)$plan['version']) { return $plan; }
+        $revision = QueryUtils::querySingleRow('SELECT * FROM module_treatment_planner_revisions WHERE plan_id = ? AND version = ?', [$planId, $version]);
+        if (!$revision) { throw new UserFacingException('Revision not found for this treatment plan'); }
+        return $revision;
+    }
+
     /**
      * Change the status of a treatment plan
      * 
@@ -307,30 +397,13 @@ class TreatmentService
      * @param int $providerId Provider ID making the change
      * @return bool Whether the status change was successful
      */
-    public function changeStatus(int $planId, string $status, int $providerId): bool
+    public function changeStatus(int $planId, string $status, int $providerId, int $expectedVersion, array $review = []): bool
     {
-        // Validate the status
-        $validStatuses = [
-            self::STATUS_DRAFT,
-            self::STATUS_PENDING_REVIEW,
-            self::STATUS_APPROVED,
-            self::STATUS_FINALIZED
-        ];
-        
-        if (!in_array($status, $validStatuses)) {
-            return false;
-        }
-        
-        $sql = "UPDATE `module_treatment_planner_plans` 
-                SET `status` = ?, `provider_id` = ?, `date_updated` = NOW()
-                WHERE `id` = ?";
-        
-        $params = [$status, $providerId, $planId];
-        
-        $result = QueryUtils::sqlStatementThrowException($sql, $params);
-        return $result !== false;
+        return $this->updateTreatmentPlan($planId, [
+            'status' => $status, 'expected_version' => $expectedVersion
+        ] + array_intersect_key($review, ReviewChecklistService::ITEMS + ['review_note' => '']), $providerId);
     }
-    
+
     /**
      * Get non-identifiable patient data for the AI prompt
      * 

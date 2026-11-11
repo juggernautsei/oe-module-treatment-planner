@@ -12,7 +12,10 @@
 
 namespace OpenEMR\Modules\TreatmentPlanner\Controllers;
 
+use OpenEMR\Modules\TreatmentPlanner\Services\SessionContext;
 use OpenEMR\Common\Twig\TwigContainer;
+use Exception;
+use OpenEMR\Modules\TreatmentPlanner\Services\AccessService;
 use Twig\Error\LoaderError;
 use Twig\Error\RuntimeError;
 use Twig\Error\SyntaxError;
@@ -43,7 +46,7 @@ class Dashboard
             'title' => 'AI Treatment Planner Dashboard',
             'stats' => $stats,
             'recent_plans' => $recent_plans,
-            'encounter' => $_SESSION['encounter'] ?? '',
+            'encounter' => SessionContext::get('encounter', ''),
             'webroot' => $GLOBALS['webroot']
         ]);
     }
@@ -56,32 +59,23 @@ class Dashboard
     private function getDashboardStats()
     {
         try {
-            // Total plans
-            $total_sql = "SELECT COUNT(*) as total FROM module_treatment_planner_plans";
-            $total_result = sqlQuery($total_sql);
-            $total_plans = (int)($total_result['total'] ?? 0);
-
-            // Active plans (using 'approved' or 'finalized' as active status)
-            $active_sql = "SELECT COUNT(*) as active FROM module_treatment_planner_plans WHERE status IN ('approved', 'finalized')";
-            $active_result = sqlQuery($active_sql);
-            $active_plans = (int)($active_result['active'] ?? 0);
-
-            // AI generated plans (assuming all plans are AI generated for now)
-            $ai_generated = $total_plans;
-
-            // Recent plans (this week)
-            $recent_sql = "SELECT COUNT(*) as recent FROM module_treatment_planner_plans WHERE date_created >= DATE_SUB(NOW(), INTERVAL 7 DAY)";
-            $recent_result = sqlQuery($recent_sql);
-            $recent_plans = (int)($recent_result['recent'] ?? 0);
-
-            return [
-                'total_plans' => $total_plans,
-                'active_plans' => $active_plans,
-                'ai_generated' => $ai_generated,
-                'recent_plans' => $recent_plans
-            ];
+            $stats = ['total_plans' => 0, 'active_plans' => 0, 'ai_generated' => 0, 'recent_plans' => 0];
+            $pid = (int)(SessionContext::get('pid', 0));
+            if ($pid <= 0) { return $stats; }
+            AccessService::assertPatient($pid);
+            $result = sqlStatement('SELECT encounter_id, status, date_created FROM module_treatment_planner_plans WHERE patient_id = ?', [$pid]);
+            while ($plan = sqlFetchArray($result)) {
+                try {
+                    AccessService::assertPatient($pid, false, (int)$plan['encounter_id']);
+                } catch (\RuntimeException $e) { continue; }
+                $stats['total_plans']++;
+                $stats['ai_generated']++;
+                if (in_array($plan['status'], ['approved', 'finalized'], true)) { $stats['active_plans']++; }
+                if (strtotime($plan['date_created']) >= strtotime('-7 days')) { $stats['recent_plans']++; }
+            }
+            return $stats;
         } catch (Exception $e) {
-            error_log("Dashboard: Error fetching stats - " . $e->getMessage());
+            error_log("Dashboard: Error fetching stats - " . \OpenEMR\Modules\TreatmentPlanner\Services\ErrorService::publicMessage($e, 'module_boundary'));
             return [
                 'total_plans' => 0,
                 'active_plans' => 0,
@@ -100,7 +94,7 @@ class Dashboard
     {
         try {
             // Get current patient ID from session
-            $pid = $_SESSION['pid'] ?? 0;
+            $pid = SessionContext::get('pid', 0);
             
             // If no patient is selected, return empty array
             if (empty($pid)) {
@@ -110,6 +104,7 @@ class Dashboard
             $sql = "SELECT 
                         tp.id,
                         tp.status,
+                        tp.encounter_id,
                         tp.date_created,
                         tp.date_updated,
                         CONCAT(pd.fname, ' ', pd.lname) as patient_name,
@@ -124,6 +119,9 @@ class Dashboard
             $plans = [];
 
             while ($row = sqlFetchArray($result)) {
+                try {
+                    AccessService::assertPatient((int)$pid, false, (int)$row['encounter_id']);
+                } catch (\RuntimeException $e) { continue; }
                 $plans[] = [
                     'id' => $row['id'],
                     'status' => $row['status'],
@@ -135,7 +133,7 @@ class Dashboard
 
             return $plans;
         } catch (Exception $e) {
-            error_log("Dashboard: Error fetching recent plans - " . $e->getMessage());
+            error_log("Dashboard: Error fetching recent plans - " . \OpenEMR\Modules\TreatmentPlanner\Services\ErrorService::publicMessage($e, 'module_boundary'));
             return [];
         }
     }

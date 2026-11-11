@@ -1,0 +1,8 @@
+<fieldset class="review-checklist my-3">
+ <legend>{{ 'Clinician review required for approval or finalization'|xlt }}</legend>
+ <p>{{ 'Check the current version against the recorded inputs. These acknowledgements do not replace clinical judgement.'|xlt }}</p>
+ <label class="d-block"><input type="checkbox" name="review_sources" value="1"> {{ 'I checked the assessment inputs and missing information.'|xlt }}</label>
+ <label class="d-block"><input type="checkbox" name="review_suggestions" value="1"> {{ 'I checked AI suggestions and removed unsupported claims.'|xlt }}</label>
+ <label class="d-block"><input type="checkbox" name="review_clinical" value="1"> {{ 'I verified diagnoses, interventions and medication references for this patient.'|xlt }}</label>
+ <label class="d-block">{{ 'Review note (optional)'|xlt }}<textarea class="form-control" name="review_note" maxlength="4000"></textarea></label>
+</fieldset>

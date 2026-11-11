@@ -12,24 +12,25 @@
  */
 
 namespace OpenEMR\Modules\TreatmentPlanner\Controllers;
+use OpenEMR\Modules\TreatmentPlanner\Services\AccessService;
+use OpenEMR\Modules\TreatmentPlanner\Services\ErrorService;
+use OpenEMR\Modules\TreatmentPlanner\Services\PlanStructureService;
+use OpenEMR\Modules\TreatmentPlanner\Services\ModuleServiceFactory;
+use OpenEMR\Modules\TreatmentPlanner\Exceptions\UserFacingException;
 
-use OpenEMR\Common\Csrf\CsrfUtils;
+use OpenEMR\Modules\TreatmentPlanner\Services\CsrfService;
+use OpenEMR\Modules\TreatmentPlanner\Services\SessionContext;
 use OpenEMR\Common\Twig\TwigContainer;
 use OpenEMR\Modules\TreatmentPlanner\Services\TreatmentService;
 use OpenEMR\Modules\TreatmentPlanner\Services\OpenAIService;
-use OpenEMR\Modules\TreatmentPlanner\Services\UsageService;
 use OpenEMR\Modules\TreatmentPlanner\Services\ConfigService;
-use OpenEMR\Modules\TreatmentPlanner\Services\AssessmentService;
-use OpenEMR\Modules\TreatmentPlanner\Services\PromptGenerationService;
-use OpenEMR\Services\PatientService;
-use OpenEMR\Services\EncounterService;
-use Exception;
 
 /**
  * Controller for handling treatment plan operations
  */
 class TreatmentController
 {
+    private ?PlanStructureService $structureService = null;
     private TreatmentService $treatmentService;
     private OpenAIService $openAIService;
     private ConfigService $configService;
@@ -38,30 +39,14 @@ class TreatmentController
     /**
      * TreatmentController constructor
      */
-    public function __construct()
+    public function __construct(?TreatmentService $treatmentService = null, ?OpenAIService $openAIService = null,
+        ?ConfigService $configService = null, ?TwigContainer $twig = null, ?PlanStructureService $structureService = null)
     {
-        // Initialize services
-        $this->configService = new ConfigService();
-
-        $patientService = new PatientService();
-        $encounterService = new EncounterService();
-        $usageService = new UsageService();
-
-        // Create PromptGenerationService
-        $promptGenerationService = new PromptGenerationService();
-
-        // Set up OpenAI service with usage tracking and prompt generation
-        $this->openAIService = new OpenAIService($this->configService, $usageService, $promptGenerationService);
-
-        // Set up treatment service
-        $this->treatmentService = new TreatmentService(
-            $this->openAIService,
-            $patientService,
-            $encounterService
-        );
-
-        // Set up Twig for templating
-        $this->twig = new TwigContainer(dirname(__DIR__, 2) . '/templates', $GLOBALS['kernel']);
+        $this->configService = $configService ?? ModuleServiceFactory::config();
+        $this->openAIService = $openAIService ?? ModuleServiceFactory::openAI($this->configService);
+        $this->treatmentService = $treatmentService ?? ModuleServiceFactory::treatment($this->openAIService);
+        $this->twig = $twig ?? ModuleServiceFactory::twig();
+        $this->structureService = $structureService ?? ModuleServiceFactory::structure();
     }
 
     /**
@@ -71,27 +56,31 @@ class TreatmentController
      */
     public function createAction(): void
     {
-        $pid = $_GET['pid'] ?? $_SESSION['pid'];
-        $encounterId = $_GET['encounter'] ?? $_SESSION['encounter'];
+        $pid = $_SERVER['REQUEST_METHOD'] === 'POST' ? ($_POST['pid'] ?? 0) : ($_GET['pid'] ?? SessionContext::get('pid', 0));
+        $encounterId = $_SERVER['REQUEST_METHOD'] === 'POST' ? ($_POST['encounter'] ?? 0) : ($_GET['encounter'] ?? SessionContext::get('encounter', 0));
         $formId = $_GET['formid'] ?? 0;
 
         $error = '';
         $plan = null;
+        $assessmentPreview = [];
+        $observations = is_string($_POST['observations'] ?? '') ? ($_POST['observations'] ?? '') : '';
 
         try {
+            AccessService::assertPatient((int)$pid, true, (int)$encounterId);
+            try { $assessmentPreview = $this->treatmentService->previewAssessment((int)$pid, (int)$encounterId); }
+            catch (\Throwable $e) { $error = ErrorService::publicMessage($e, 'assessment_preview'); }
             // Check if API key is configured
             if (!$this->configService->isApiKeyConfigured()) {
                 $error = xl('OpenAI API key is not configured. Please configure it in the module settings.');
             }
 
             // Process form submission
-            if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_observations'])) {
+            if ($error === '' && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_observations'])) {
                 // Verify CSRF
-                if (!CsrfUtils::verifyCsrfToken($_POST['csrf_token_form'], 'treatment-planner')) {
+                if (!CsrfService::verifyCsrfToken(($_POST['csrf_token_form'] ?? ''), 'treatment-planner')) {
                     $error = xl('Authentication Error');
                 } else {
-                    $observations = $_POST['observations'] ?? '';
-                    $providerId = $_SESSION['authUserID'] ?? 0;
+                    $providerId = SessionContext::get('authUserID', 0);
 
                     try {
                         // Generate the treatment plan
@@ -99,41 +88,67 @@ class TreatmentController
                             (int)$pid,
                             (int)$encounterId,
                             $observations,
-                            [],
-                            $providerId
+                            ['acknowledge_missing' => ($_POST['acknowledge_missing'] ?? null) === '1', 'assessment_fingerprint' => is_string($_POST['assessment_fingerprint'] ?? null) ? $_POST['assessment_fingerprint'] : ''],
+                            $providerId,
+                            is_string($_POST['request_key'] ?? null) ? $_POST['request_key'] : ''
                         );
                         
-                        // Log successful generation
-                        error_log("Treatment plan generated successfully for PID: $pid, Encounter: $encounterId");
-                        
-                    } catch (Exception $e) {
+                        // Redirect to a GET after success. Refreshing cannot resubmit the form.
+                        header('Location: ' . $GLOBALS['webroot'] . '/interface/modules/custom_modules/oe-module-treatment-planner/public/index.php/treatment/view?id=' . (int)$plan['id'], true, 303);
+                        return;
+                    } catch (\Throwable $e) {
                         // Log the error
-                        error_log("Treatment plan generation failed: " . $e->getMessage());
-                        error_log("Stack trace: " . $e->getTraceAsString());
                         
                         // Set error message for user
-                        $error = xl('Failed to generate treatment plan: ') . $e->getMessage();
+                        $error = xl('Failed to generate treatment plan: ') . ErrorService::publicMessage($e, 'treatment_plan');
                     }
                 }
             }
 
             // Render the create form
             echo $this->twig->getTwig()->render('treatment/create.html.twig', [
-                'csrf_token_form' => CsrfUtils::collectCsrfToken('treatment-planner'),
+                'csrf_token_form' => CsrfService::collectCsrfToken('treatment-planner'),
                 'pid' => $pid,
                 'encounter' => $encounterId,
                 'formid' => $formId,
                 'error' => $error,
                 'plan' => $plan,
+                'observations' => $observations,
+                'assessment_preview' => $assessmentPreview,
+                'assessment_fingerprint' => $assessmentPreview ? \OpenEMR\Modules\TreatmentPlanner\Services\AssessmentEvidenceService::fingerprint($assessmentPreview) : '',
+                'acknowledge_missing' => ($_POST['acknowledge_missing'] ?? null) === '1',
+                'request_key' => \OpenEMR\Modules\TreatmentPlanner\Services\GenerationRequestService::newKey(),
                 'webroot' => $GLOBALS['webroot'],
-                'module_name' => 'oe-module-treatment-planner',
-                'openai_api_key' => $this->configService->getDecryptedApiKey()
+                'module_name' => 'oe-module-treatment-planner'
             ]);
 
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             echo $this->twig->getTwig()->render('error.html.twig', [
-                'error' => $e->getMessage()
+                'error' => ErrorService::publicMessage($e, 'treatment_plan')
             ]);
+        }
+    }
+
+    /** Revise observations using server-managed model and credentials. */
+    public function reviseAction(): void
+    {
+        header('Content-Type: application/json');
+        try {
+            if (!CsrfService::verifyCsrfToken($_POST['csrf_token_form'] ?? '', 'treatment-planner')) {
+                http_response_code(403);
+                throw new UserFacingException('Authentication Error');
+            }
+            AccessService::assertPatient(
+                (int)($_POST['pid'] ?? 0), true, (int)($_POST['encounter'] ?? 0)
+            );
+            $text = trim(strip_tags($_POST['text'] ?? ''));
+            if ($text === '' || mb_strlen($text) > 20000) {
+                throw new UserFacingException('Enter between 1 and 20000 characters.');
+            }
+            echo json_encode(['content' => $this->openAIService->reviseObservations($text, (int)SessionContext::get('authUserID'))]);
+        } catch (\Throwable $e) {
+            if (http_response_code() !== 403) { http_response_code(400); }
+            echo json_encode(['error' => ErrorService::publicMessage($e, 'treatment_plan')]);
         }
     }
 
@@ -145,83 +160,54 @@ class TreatmentController
     public function editAction(): void
     {
         $planId = (int)($_GET['id'] ?? 0);
-        $message = '';
-        $error = '';
-
+        $message = ''; $error = '';
+        $submitted = $_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['submit_edit']) || isset($_POST['submit_finalize']));
         try {
-            // Get the treatment plan
             $plan = $this->treatmentService->getTreatmentPlan($planId);
-
-            if (!$plan) {
-                $error = xl('Treatment plan not found');
-            } else {
-                // Process form submission for editing
-                if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['submit_edit']) || isset($_POST['submit_finalize']))) {
-                    // Verify CSRF
-                    if (!CsrfUtils::verifyCsrfToken($_POST['csrf_token_form'], 'treatment-planner')) {
-                        $error = xl('Authentication Error');
-                    } else {
-                        $content = $_POST['content'] ?? '';
-                        $providerId = $_SESSION['authUserID'] ?? 0;
-
-                        // Update the treatment plan
-                        $updateData = ['content' => $content];
-
-                        // Handle finalization
-                        if (isset($_POST['submit_finalize'])) {
-                            $updateData['status'] = 'finalized';
-                            
-                            // Ensure we have encounter and patient data from session
-                            if (isset($_SESSION['encounter']) && isset($_SESSION['pid'])) {
-                                $updateData['encounter_id'] = $_SESSION['encounter'];
-                                $updateData['patient_id'] = $_SESSION['pid'];
-                            }
-                            
-                            if ($this->treatmentService->updateTreatmentPlan($planId, $updateData, $providerId)) {
-                                $message = xl('Treatment plan finalized successfully! It will now appear in the patient summary.');
-                                // Refresh the plan data
-                                $plan = $this->treatmentService->getTreatmentPlan($planId);
-                            } else {
-                                $error = xl('Failed to finalize treatment plan');
-                            }
-                        } else {
-                            // Regular save (draft)
-                            if (!empty($_POST['status']) && $_POST['status'] !== $plan['status']) {
-                                $updateData['status'] = $_POST['status'];
-                            }
-
-                            if ($this->treatmentService->updateTreatmentPlan($planId, $updateData, $providerId)) {
-                                $message = xl('Treatment plan updated successfully');
-                                // Refresh the plan data
-                                $plan = $this->treatmentService->getTreatmentPlan($planId);
-                            } else {
-                                $error = xl('Failed to update treatment plan');
-                            }
-                        }
-                    }
+            if (!$plan) { throw new UserFacingException('Treatment plan not found'); }
+            AccessService::assertPatient((int)$plan['patient_id'], true, (int)$plan['encounter_id']);
+            $editorContent = $plan['content'];
+            $formVersion = (int)$plan['version'];
+            $selectedStatus = $plan['status'];
+            if ($submitted) {
+                $editorContent = is_string($_POST['content'] ?? null) ? $_POST['content'] : '';
+                // Keep the submitted version even on conflict; never silently rebase the edit.
+                $formVersion = (int)($_POST['expected_version'] ?? 0);
+                $selectedStatus = is_string($_POST['status'] ?? null) ? $_POST['status'] : $plan['status'];
+                $saved = false;
+                try {
+                    $token = is_string($_POST['csrf_token_form'] ?? null) ? $_POST['csrf_token_form'] : '';
+                    if (!CsrfService::verifyCsrfToken($token, 'treatment-planner')) { throw new UserFacingException('Authentication Error'); }
+                    $status = isset($_POST['submit_finalize']) ? TreatmentService::STATUS_FINALIZED : $selectedStatus;
+                    if (!$this->treatmentService->updateTreatmentPlan($planId, [
+                        'content' => $editorContent, 'status' => $status, 'expected_version' => $formVersion
+                    ] + array_intersect_key($_POST, \OpenEMR\Modules\TreatmentPlanner\Services\ReviewChecklistService::ITEMS + ['review_note' => '']), (int)(SessionContext::get('authUserID', 0)))) { throw new UserFacingException('Unable to save treatment plan'); }
+                    $saved = true;
+                    $refreshedPlan = $this->treatmentService->getTreatmentPlan($planId);
+                    if (!$refreshedPlan) { throw new UserFacingException('Saved plan is temporarily unavailable.'); }
+                    $plan = $refreshedPlan;
+                    $editorContent = $plan['content']; $formVersion = (int)$plan['version']; $selectedStatus = $plan['status'];
+                    $message = xl('Treatment plan saved successfully');
+                } catch (\Throwable $e) {
+                    $error = ($saved
+                        ? xl('The save completed, but the saved plan could not be refreshed. Your submitted text is preserved below. ')
+                        : xl('Your changes were not saved. Your submitted text is preserved below. ')) . ErrorService::publicMessage($e, 'treatment_plan');
                 }
             }
-
-            // Render the edit form
+            $readOnly = $plan['status'] === TreatmentService::STATUS_FINALIZED;
+            if ($readOnly && !$submitted) { throw new UserFacingException('Finalized plans are read-only.'); }
             echo $this->twig->getTwig()->render('treatment/edit.html.twig', [
-                'csrf_token_form' => CsrfUtils::collectCsrfToken('treatment-planner'),
-                'plan' => $plan,
-                'message' => $message,
-                'error' => $error,
-                'statuses' => [
-                    TreatmentService::STATUS_DRAFT => xl('Draft'),
-                    TreatmentService::STATUS_PENDING_REVIEW => xl('Pending Review'),
-                    TreatmentService::STATUS_APPROVED => xl('Approved'),
-                    TreatmentService::STATUS_FINALIZED => xl('Finalized')
-                ],
-                'webroot' => $GLOBALS['webroot'],
-                'module_name' => 'oe-module-treatment-planner'
+                'csrf_token_form' => CsrfService::collectCsrfToken('treatment-planner'),
+                'plan' => $plan, 'message' => $message, 'error' => $error,
+                'missing_sections' => ($this->structureService ?? ModuleServiceFactory::structure())->missingSections($editorContent),
+                'editor_content' => $editorContent, 'form_version' => $formVersion,
+                'selected_status' => $selectedStatus, 'read_only' => $readOnly,
+                'statuses' => [TreatmentService::STATUS_DRAFT => xl('Draft'), TreatmentService::STATUS_PENDING_REVIEW => xl('Pending Review'),
+                    TreatmentService::STATUS_APPROVED => xl('Approved'), TreatmentService::STATUS_FINALIZED => xl('Finalized')],
+                'webroot' => $GLOBALS['webroot'], 'module_name' => 'oe-module-treatment-planner'
             ]);
-
-        } catch (Exception $e) {
-            echo $this->twig->getTwig()->render('error.html.twig', [
-                'error' => $e->getMessage()
-            ]);
+        } catch (\Throwable $e) {
+            echo $this->twig->getTwig()->render('error.html.twig', ['error' => ErrorService::publicMessage($e, 'treatment_plan')]);
         }
     }
 
@@ -243,8 +229,15 @@ class TreatmentController
                 $error = xl('Treatment plan not found');
             }
 
+            $evidence = $plan ? (new \OpenEMR\Modules\TreatmentPlanner\Services\AssessmentEvidenceService())->get((int)$plan['id']) : null;
             // Render the view template
             echo $this->twig->getTwig()->render('treatment/view.html.twig', [
+                'missing_sections' => $plan ? ($this->structureService ?? ModuleServiceFactory::structure())->missingSections($plan['content']) : [],
+                'assessment_evidence' => $evidence,
+                'source_review_warnings' => $plan ? \OpenEMR\Modules\TreatmentPlanner\Services\SourceReviewService::warnings($plan['content'], $evidence) : [],
+                'clinical_reviews' => $plan ? \OpenEMR\Common\Database\QueryUtils::fetchRecords('SELECT r.*, u.fname, u.lname FROM module_treatment_planner_reviews r LEFT JOIN users u ON u.id = r.reviewer_id WHERE r.plan_id = ? ORDER BY r.id DESC LIMIT 50', [(int)$plan['id']]) : [],
+                'plan_content_html' => $plan ? (new \OpenEMR\Modules\TreatmentPlanner\Services\PlanContentRenderer())->render($plan['content']) : '',
+                'csrf_token_form' => CsrfService::collectCsrfToken('treatment-planner'),
                 'plan' => $plan,
                 'error' => $error,
                 'statuses' => [
@@ -257,10 +250,30 @@ class TreatmentController
                 'module_name' => 'oe-module-treatment-planner'
             ]);
 
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             echo $this->twig->getTwig()->render('error.html.twig', [
-                'error' => $e->getMessage()
+                'error' => ErrorService::publicMessage($e, 'treatment_plan')
             ]);
+        }
+    }
+
+    /** Read-only history and side-by-side comparison, including finalized plans. */
+    public function historyAction(): void
+    {
+        try {
+            $id = (int)($_GET['id'] ?? 0);
+            $history = $this->treatmentService->getRevisionHistory($id, (int)($_GET['page'] ?? 1));
+            $currentVersion = (int)$history['plan']['version'];
+            $left = (int)($_GET['left'] ?? ($history['revisions'][0]['version'] ?? $currentVersion));
+            $right = (int)($_GET['right'] ?? $currentVersion);
+            $history['left'] = $this->treatmentService->getRevision($id, $left);
+            $history['right'] = $this->treatmentService->getRevision($id, $right);
+            $history['webroot'] = $GLOBALS['webroot'];
+            $history['module_name'] = 'oe-module-treatment-planner';
+            echo $this->twig->getTwig()->render('treatment/history.html.twig', $history);
+        } catch (\Throwable $e) {
+            http_response_code(400);
+            echo $this->twig->getTwig()->render('error.html.twig', ['error' => ErrorService::publicMessage($e, 'treatment_plan')]);
         }
     }
 
@@ -271,8 +284,8 @@ class TreatmentController
      */
     public function listAction(): void
     {
-        $pid = $_GET['pid'] ?? $_SESSION['pid'];
-        $encounterId = $_GET['encounter'] ?? $_SESSION['encounter'];
+        $pid = $_GET['pid'] ?? SessionContext::get('pid', 0);
+        $encounterId = $_GET['encounter'] ?? SessionContext::get('encounter', 0);
         $error = '';
 
         // Validate that we have a valid patient ID
@@ -303,9 +316,9 @@ class TreatmentController
                 'module_name' => 'oe-module-treatment-planner'
             ]);
 
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             echo $this->twig->getTwig()->render('error.html.twig', [
-                'error' => $e->getMessage()
+                'error' => ErrorService::publicMessage($e, 'treatment_plan')
             ]);
         }
     }
@@ -323,7 +336,7 @@ class TreatmentController
 
         try {
             // Verify CSRF
-            if (!CsrfUtils::verifyCsrfToken($_POST['csrf_token_form'], 'treatment-planner')) {
+            if (!CsrfService::verifyCsrfToken(($_POST['csrf_token_form'] ?? ''), 'treatment-planner')) {
                 $response['message'] = xl('Authentication Error');
                 echo json_encode($response);
                 return;
@@ -331,7 +344,7 @@ class TreatmentController
 
             $planId = (int)($_POST['plan_id'] ?? 0);
             $status = $_POST['status'] ?? '';
-            $providerId = $_SESSION['authUserID'] ?? 0;
+            $providerId = SessionContext::get('authUserID', 0);
 
             if (empty($planId) || empty($status)) {
                 $response['message'] = xl('Missing required parameters');
@@ -340,15 +353,15 @@ class TreatmentController
             }
 
             // Change the status
-            if ($this->treatmentService->changeStatus($planId, $status, $providerId)) {
+            if ($this->treatmentService->changeStatus($planId, $status, $providerId, (int)($_POST['expected_version'] ?? 0), array_intersect_key($_POST, \OpenEMR\Modules\TreatmentPlanner\Services\ReviewChecklistService::ITEMS + ['review_note' => '']))) {
                 $response['success'] = true;
                 $response['message'] = xl('Status updated successfully');
             } else {
                 $response['message'] = xl('Failed to update status');
             }
 
-        } catch (Exception $e) {
-            $response['message'] = $e->getMessage();
+        } catch (\Throwable $e) {
+            $response['message'] = ErrorService::publicMessage($e, 'treatment_plan');
         }
 
         echo json_encode($response);
@@ -363,14 +376,14 @@ class TreatmentController
     {
         try {
             // Verify CSRF
-            if (!CsrfUtils::verifyCsrfToken($_POST['csrf_token_form'], 'treatment-planner')) {
+            if (!CsrfService::verifyCsrfToken(($_POST['csrf_token_form'] ?? ''), 'treatment-planner')) {
                 $error = xl('Authentication Error');
                 header('Location: ' . $GLOBALS['webroot'] . '/interface/modules/custom_modules/oe-module-treatment-planner/public/index.php/dashboard?error=' . urlencode($error));
                 return;
             }
 
             $planId = (int)($_POST['plan_id'] ?? 0);
-            $providerId = $_SESSION['authUserID'] ?? 0;
+            $providerId = SessionContext::get('authUserID', 0);
 
             if (!$planId) {
                 $error = xl('Invalid treatment plan ID');
@@ -387,12 +400,12 @@ class TreatmentController
             }
 
             // Update to finalized status
-            $updateData = ['status' => 'finalized'];
+            $updateData = ['status' => 'finalized', 'expected_version' => (int)($_POST['expected_version'] ?? 0)] + array_intersect_key($_POST, \OpenEMR\Modules\TreatmentPlanner\Services\ReviewChecklistService::ITEMS + ['review_note' => '']);
             
             // Ensure we have encounter and patient data from session
-            if (isset($_SESSION['encounter']) && isset($_SESSION['pid'])) {
-                $updateData['encounter_id'] = $_SESSION['encounter'];
-                $updateData['patient_id'] = $_SESSION['pid'];
+            if (SessionContext::get('encounter') !== null && SessionContext::get('pid') !== null) {
+                $updateData['encounter_id'] = SessionContext::get('encounter');
+                $updateData['patient_id'] = SessionContext::get('pid');
             }
 
             if ($this->treatmentService->updateTreatmentPlan($planId, $updateData, $providerId)) {
@@ -403,8 +416,8 @@ class TreatmentController
                 header('Location: ' . $GLOBALS['webroot'] . '/interface/modules/custom_modules/oe-module-treatment-planner/public/index.php/dashboard?error=' . urlencode($error));
             }
 
-        } catch (Exception $e) {
-            $error = xl('Error finalizing treatment plan: ') . $e->getMessage();
+        } catch (\Throwable $e) {
+            $error = xl('Error finalizing treatment plan: ') . ErrorService::publicMessage($e, 'treatment_plan');
             header('Location: ' . $GLOBALS['webroot'] . '/interface/modules/custom_modules/oe-module-treatment-planner/public/index.php/dashboard?error=' . urlencode($error));
         }
     }

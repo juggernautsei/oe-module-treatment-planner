@@ -2,7 +2,32 @@
 
 {% block treatment_content %}
 <style>
+.treatment-content { white-space: normal; line-height: 1.65; overflow-wrap: anywhere; }
+.treatment-content h2, .treatment-content h3, .treatment-content h4 { line-height: 1.3; margin: 1.4em 0 .65em; font-weight: 700; }
+.treatment-content h2 { font-size: 1.35rem; }
+.treatment-content h3 { font-size: 1.15rem; }
+.treatment-content h4 { font-size: 1rem; }
+.treatment-content p { margin: 0 0 .8em; }
+.treatment-content ul, .treatment-content ol { padding-left: 1.6em; margin: .4em 0 1em; }
+.treatment-content li { margin-bottom: .3em; }
+.treatment-content hr { border: 0; border-top: 1px solid #ccc; margin: 1em 0; }
+@page { size: A4; margin: 18mm 16mm; }
 @media print {
+    html, body { background: #fff !important; color: #111 !important; font-size: 11pt; }
+    .treatment-content { font-size: 11pt; line-height: 1.5; border: 0; padding: 0; min-height: 0; }
+    body > .container-fluid { margin: 0 !important; padding: 0 !important; }
+    .treatment-content h2 { font-size: 15pt; }
+    .treatment-content h3 { font-size: 13pt; }
+    .treatment-content h4 { font-size: 11pt; }
+    .treatment-content h2, .treatment-content h3, .treatment-content h4 { break-after: avoid-page; page-break-after: avoid; }
+    .treatment-content p, .treatment-content li { orphans: 3; widows: 3; }
+    .treatment-plan-container .row, .treatment-plan-container .col-12 { display: block !important; width: 100% !important; max-width: 100% !important; }
+    .treatment-plan-container > .row { margin: 0 !important; }
+    .treatment-plan-container > .row > .col-12 { padding: 0 !important; }
+    .card { break-inside: auto; }
+    .card-header { break-after: avoid-page; }
+    .status-badge { color: #111 !important; background: #fff !important; border: 1px solid #555; padding: 3px 8px; }
+
     /* Hide action buttons and interactive elements during print */
     .no-print,
     .btn-group,
@@ -52,6 +77,11 @@
                 </div>
             {% endif %}
             
+            {% if missing_sections|default([]) %}
+            <div class="alert alert-warning">{{ "Expected sections not detected"|xlt }}: {{ missing_sections|join(', ')|text }}.
+              {% if plan.status == 'finalized' %}{{ "This finalized record remains read-only."|xlt }}{% else %}{{ "Complete these sections before approval or finalization."|xlt }}{% endif %}
+              {{ "This checks structure only; clinician review is still required."|xlt }}</div>
+            {% endif %}
             {% if plan %}
                 <div class="card mb-3">
                     <div class="card-header d-flex justify-content-between align-items-center">
@@ -62,9 +92,8 @@
                         <div class="row mb-3">
                             <div class="col-md-4">
                                 <strong>{{ "Age"|xlt }}:</strong> 
-                                {% if plan.DOB %}
-                                    {% set age = "now"|date("Y") - plan.DOB|date("Y") %}
-                                    {{ age }} {{ "years"|xlt }}
+                                {% if plan.age is not null %}
+                                    {{ plan.age|text }} {{ "years"|xlt }}
                                 {% else %}
                                     {{ "Not specified"|xlt }}
                                 {% endif %}
@@ -77,22 +106,46 @@
                             </div>
                         </div>
                         
+                        <details class="mb-3 no-print"><summary>{{ "Original generation details"|xlt }}</summary>
+                        {% if plan.generation_metadata|default(null) %}
+                          {% set generation_labels = {'model': 'Model', 'requested_model': 'Requested model', 'prompt_version': 'Prompt version', 'generated_at': 'Generated at (UTC)', 'prompt_tokens': 'Input tokens', 'completion_tokens': 'Output tokens', 'total_tokens': 'Total tokens'} %}
+                          <dl>{% for key, label in generation_labels %}{% if plan.generation_metadata[key] is defined %}<dt>{{ label|xlt }}</dt><dd>{{ plan.generation_metadata[key]|text }}</dd>{% endif %}{% endfor %}</dl>
+                        {% else %}<p>{{ "Generation metadata was not recorded for this plan."|xlt }}</p>{% endif %}
+                        </details>
+                        <div class="alert alert-info">{{ 'AI-assisted plan: verify diagnoses, medication references and recommendations against the chart. Source references identify recorded inputs; they do not prove a claim is correct.'|xlt }}</div>
+                        <section class="no-print mb-3">
+                          <h3>{{ 'Assessment evidence and clinician review'|xlt }}</h3>
+                          {% if source_review_warnings|default([]) %}<div class="alert alert-warning"><h4>{{ 'Claims to verify'|xlt }}</h4><ul>{% for warning in source_review_warnings %}<li>{{ warning|text }}</li>{% endfor %}</ul></div>{% endif %}
+                          {% if assessment_evidence|default(null) %}
+                          <p>{{ 'Input snapshot captured at generation'|xlt }}: {{ assessment_evidence.captured_at|text }} — {{ assessment_evidence.source.form|text }} — {{ 'Encounter'|xlt }} {{ assessment_evidence.source.encounter|text }}</p>
+                          {% if assessment_evidence.missing %}<p class="alert alert-warning">{{ 'Missing or uncertain at generation'|xlt }}: {{ assessment_evidence.missing|join(', ')|text }}</p>{% endif %}
+                          <details><summary>{{ 'Recorded assessment inputs (preserved at generation)'|xlt }}</summary>
+                          <table class="table table-sm"><thead><tr><th>{{ 'Reference'|xlt }}</th><th>{{ 'Source field'|xlt }}</th><th>{{ 'Recorded value'|xlt }}</th></tr></thead><tbody>
+                          {% for source in assessment_evidence.sources %}<tr><td>[{{ source.reference|text }}]</td><td>{{ source.label|text }} ({{ source.source_field|text }})</td><td>{{ source.value|text }}</td></tr>{% endfor %}
+                          </tbody></table><h4>{{ 'Additional observations submitted at generation'|xlt }}</h4><p>{{ assessment_evidence.observations|text }}</p></details>
+                          {% else %}<p>{{ 'No generation-time assessment snapshot exists for this older plan. Current chart data must not be treated as its original source.'|xlt }}</p>{% endif %}
+                          <details><summary>{{ 'Recorded approval and finalization acknowledgements'|xlt }}</summary>
+                          {% for review in clinical_reviews|default([]) %}<p>{{ review.date_created|text }} — {{ review.fname|text }} {{ review.lname|text }} — {{ review.status|text }} — {{ 'Version'|xlt }} {{ review.plan_version|text }}<br>{{ review.note|text }}</p>{% else %}<p>{{ 'No recorded checklist acknowledgements for this plan.'|xlt }}</p>{% endfor %}
+                          </details>
+                        </section>
                         <div class="treatment-content mb-4">
-                            {{ plan.content|nl2br }}
+                            {% if plan_content_html is defined %}{{ plan_content_html|raw }}{% else %}{{ plan.content|nl2br }}{% endif %}
                         </div>
                         
                         <div class="row mt-4">
                             <div class="col-md-12">
                                 <div class="btn-group no-print" role="group">
-                                    <a href="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/treatment/edit?id={{ plan.id }}" class="btn btn-primary">
+                                    <a class="btn btn-outline-primary" href="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/treatment/progress?id={{ plan.id|attr }}">{{ 'Track goal progress'|xlt }}</a>
+                                    {% if plan.status != 'finalized' %}<a href="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/treatment/edit?id={{ plan.id }}" class="btn btn-primary">
                                         {{ "Edit Plan"|xlt }}
-                                    </a>
+                                    </a>{% endif %}
+                                    <a class="btn btn-outline-primary" href="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/treatment/history?id={{ plan.id|attr }}">{{ "Revision History"|xlt }}</a>
                                     <button type="button" id="print-btn" class="btn btn-secondary no-print">
                                         <i class="fa fa-print"></i> {{ "Print"|xlt }}
                                     </button>
-                                    <a href="{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/treatment_pdf.php?id={{ plan.id }}" class="btn btn-info no-print">
-                                        <i class="fa fa-file-pdf"></i> {{ "Export PDF"|xlt }}
-                                    </a>
+                                    <button type="button" class="btn btn-info no-print" onclick="window.print()">
+                                        {{ "Save as PDF / Print"|xlt }}
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -106,7 +159,10 @@
                                     <form id="status-form" class="status-form no-print">
                                         <input type="hidden" name="csrf_token_form" value="{{ csrf_token_form|attr }}">
                                         <input type="hidden" name="plan_id" value="{{ plan.id|attr }}">
+                                        <input type="hidden" name="expected_version" value="{{ plan.version|attr }}">
                                         
+                                        {% if plan.status in ['pending_review','approved'] %}{% include 'treatment/review-checklist.twig' %}{% endif %}
+                                        <div id="review-feedback" class="alert alert-warning" role="alert" hidden></div>
                                         <div class="workflow-actions">
                                             {% if plan.status == 'draft' %}
                                                 <button type="button" class="btn btn-warning status-btn" data-status="pending_review">
@@ -180,7 +236,7 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     // Print functionality
-    document.getElementById('print-btn').addEventListener('click', function() {
+    document.getElementById('print-btn')?.addEventListener('click', function() {
         window.print();
     });
     
@@ -196,6 +252,19 @@ document.addEventListener('DOMContentLoaded', function() {
                 'finalized': '{{ "Finalized"|xlt }}'
             }[status];
             
+            const reviewFeedback = document.getElementById('review-feedback');
+            if (['approved', 'finalized'].includes(status)) {
+                const acknowledgements = document.querySelectorAll('#status-form .review-checklist input[type="checkbox"]');
+                if (acknowledgements.length !== 3 || Array.from(acknowledgements).some(input => !input.checked)) {
+                    if (reviewFeedback) {
+                        reviewFeedback.textContent = '{{ "Complete every clinician review acknowledgement before approval or finalization."|xlt|js_escape }}';
+                        reviewFeedback.hidden = false;
+                        reviewFeedback.scrollIntoView({block: 'center'});
+                    }
+                    return;
+                }
+            }
+            if (reviewFeedback) { reviewFeedback.hidden = true; }
             if (confirm('{{ "Are you sure you want to change the status to"|xlt }} ' + statusName + '?')) {
                 const form = document.getElementById('status-form');
                 const statusInput = document.createElement('input');
@@ -207,7 +276,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Submit via AJAX
                 const formData = new FormData(form);
                 
-                fetch('{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/treatment_change_status.php', {
+                fetch('{{ webroot }}/interface/modules/custom_modules/{{ module_name }}/public/index.php/treatment/change-status', {
                     method: 'POST',
                     body: formData
                 })

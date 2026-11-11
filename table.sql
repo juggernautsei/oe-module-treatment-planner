@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS `module_treatment_planner_plans` (
   `provider_id` int(11) NOT NULL,
   `content` text DEFAULT NULL,
   `sections` text DEFAULT NULL,
+  `generation_metadata` text DEFAULT NULL,
   `status` enum('draft','pending_review','approved','finalized') NOT NULL DEFAULT 'draft',
   `version` int(11) NOT NULL DEFAULT 1,
   `date_created` datetime DEFAULT current_timestamp(),
@@ -46,7 +47,67 @@ CREATE TABLE IF NOT EXISTS `module_treatment_planner_usage` (
   `completion_tokens` int(11) NOT NULL DEFAULT 0,
   `total_tokens` int(11) NOT NULL DEFAULT 0,
   `duration_seconds` float NOT NULL DEFAULT 0,
-  `estimated_cost` decimal(10,6) NOT NULL DEFAULT 0.000000,
+  `estimated_cost` decimal(10,6) DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `provider_id_index` (`provider_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `module_treatment_planner_revisions` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `plan_id` int NOT NULL,
+  `version` int NOT NULL,
+  `content` text,
+  `sections` text,
+  `status` varchar(32) NOT NULL,
+  `provider_id` int NOT NULL,
+  `date_updated` datetime NOT NULL,
+  `changed_by` int NOT NULL,
+  `date_archived` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `plan_version` (`plan_id`, `version`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `module_treatment_planner_requests` (
+  `request_key` char(64) NOT NULL,
+  `patient_id` bigint NOT NULL,
+  `encounter_id` bigint NOT NULL,
+  `provider_id` int NOT NULL,
+  `input_hash` char(64) NOT NULL,
+  `state` varchar(16) NOT NULL,
+  `plan_id` int DEFAULT NULL,
+  `date_created` datetime NOT NULL,
+  `date_updated` datetime NOT NULL,
+  PRIMARY KEY (`request_key`),
+  KEY `patient_encounter` (`patient_id`, `encounter_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `module_treatment_planner_usage_queue` (
+  `event_key` char(32) NOT NULL,
+  `provider_id` int NOT NULL,
+  `usage_datetime` datetime NOT NULL,
+  `model` varchar(50) NOT NULL,
+  `prompt_tokens` int NOT NULL,
+  `completion_tokens` int NOT NULL,
+  `duration_seconds` float NOT NULL,
+  `estimated_cost` decimal(10,6) DEFAULT NULL,
+  `attempts` int NOT NULL DEFAULT 0,
+  `last_attempt` datetime DEFAULT NULL,
+  PRIMARY KEY (`event_key`),
+  KEY `usage_datetime` (`usage_datetime`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS module_treatment_planner_evidence (
+ plan_id int NOT NULL, snapshot longtext NOT NULL, PRIMARY KEY(plan_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+CREATE TABLE IF NOT EXISTS module_treatment_planner_reviews (
+ id bigint NOT NULL AUTO_INCREMENT, plan_id int NOT NULL, plan_version int NOT NULL,
+ reviewer_id int NOT NULL, status varchar(32) NOT NULL, note text NOT NULL, date_created datetime NOT NULL,
+ PRIMARY KEY(id), UNIQUE KEY plan_version_review(plan_id,plan_version)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+CREATE TABLE IF NOT EXISTS module_treatment_planner_progress (
+ id bigint NOT NULL AUTO_INCREMENT, plan_id int NOT NULL, plan_version int NOT NULL,
+ encounter_id bigint NOT NULL, actor_id int NOT NULL, request_key char(64) NOT NULL,
+ objective varchar(255) NOT NULL, status varchar(32) NOT NULL, measure varchar(255) NOT NULL,
+ note text NOT NULL, date_created datetime NOT NULL,
+ PRIMARY KEY(id), UNIQUE KEY request_key(request_key), KEY plan_progress(plan_id,id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

@@ -12,6 +12,7 @@
  */
 
 namespace OpenEMR\Modules\TreatmentPlanner\Services;
+use OpenEMR\Modules\TreatmentPlanner\Exceptions\UserFacingException;
 
 use Exception;
 
@@ -20,6 +21,13 @@ use Exception;
  */
 class AssessmentService
 {
+    public const FIELD_IDS = ['reason_visit', 'problem_start', 'problem_duration', 'problem_severity', 'precipitating_factors', 'current_stressors', 'appearance_build', 'appearance_hygiene', 'appearance_dress', 'appearance_grooming', 'orientation', 'consciousness', 'alertness', 'concentration', 'attention', 'memory_short', 'memory_long', 'intelligence', 'eye_contact', 'gait', 'psychomotor', 'cooperation', 'speech_rate', 'speech_volume', 'speech_content', 'speech_fluency', 'mood', 'affect_range', 'affect_amplitude', 'affect_appropriate', 'thought_organization', 'thought_coherence', 'thought_goal_directed', 'delusions', 'obsessions', 'phobias', 'suicidal_ideation', 'homicidal_ideation', 'hallucinations_auditory', 'hallucinations_visual', 'hallucinations_other', 'insight', 'judgment', 'suicide_current', 'suicide_plan', 'suicide_means', 'suicide_history', 'suicide_protective', 'violence_current', 'violence_history', 'violence_triggers', 'substance_current', 'substances_used', 'substance_frequency', 'substance_impact', 'psychiatric_history', 'medical_history', 'family_psych_history', 'current_medications', 'allergies', 'work_functioning', 'social_functioning', 'family_functioning', 'self_care', 'adl_description', 'primary_diagnosis', 'secondary_diagnoses', 'rule_out_diagnoses', 'diagnosis_severity', 'previous_therapy', 'previous_medications', 'psychiatric_hospitalizations', 'treatment_response', 'living_situation', 'support_system', 'education_level', 'employment_status', 'financial_stressors', 'legal_issues', 'cultural_factors', 'personal_strengths', 'coping_skills', 'motivation_change', 'treatment_goals', 'available_resources'];
+    private ?array $lastSnapshot = null;
+    private array $sourceRecord = [];
+    private array $listValueCache = [];
+
+    public function getLastSnapshot(): ?array { return $this->lastSnapshot; }
+
     /**
      * Extract comprehensive assessment data for AI processing
      *
@@ -31,15 +39,16 @@ class AssessmentService
     public function extractAssessmentData(int $pid, int $encounter): array
     {
         if ($pid <= 0 || $encounter <= 0) {
-            throw new Exception("Invalid patient ID or encounter ID");
+            throw new UserFacingException("Invalid patient ID or encounter ID");
         }
 
         try {
+            $this->lastSnapshot = null;
             // Get the form data
             $formData = $this->getFormData($pid, $encounter);
             
             if (empty($formData)) {
-                throw new Exception("No LBF_MHINTAKE assessment data found for this encounter. Please ensure the assessment form has been completed and saved.");
+                throw new UserFacingException("No assessment data found for the configured form in this encounter. Complete and save the assessment first.");
             }
 
             // Structure the data for AI processing
@@ -57,11 +66,22 @@ class AssessmentService
                 'strengths_resources' => $this->extractStrengthsResources($formData)
             ];
 
+            $this->lastSnapshot = AssessmentEvidenceService::snapshot($formData, $this->sourceRecord);
+            foreach ($structuredData['patient_info'] as $field => $value) {
+                if ($value === null || $value === '') { continue; }
+                $this->lastSnapshot['sources'][] = ['reference' => 'P' . (count($this->lastSnapshot['sources']) + 1),
+                    'field' => 'patient_' . $field, 'source_field' => 'patient_data/' . $field,
+                    'label' => 'Chart demographics: ' . $field, 'value' => (string)$value, 'documented' => true];
+            }
+            foreach ($structuredData['diagnoses'] as $index => $diagnosis) {
+                $this->lastSnapshot['sources'][] = ['reference' => 'D' . ($index + 1), 'field' => 'chart_problem_list',
+                    'source_field' => 'lists/medical_problem', 'label' => 'Chart problem list (requires clinical verification)',
+                    'value' => ($diagnosis['title'] ?? '') . ' ' . ($diagnosis['diagnosis_code'] ?? ''), 'documented' => true];
+            }
             return $structuredData;
 
         } catch (Exception $e) {
-            error_log("AssessmentService Error: " . $e->getMessage());
-            throw new Exception("Failed to extract assessment data: " . $e->getMessage());
+            throw $e;
         }
     }
 
@@ -74,29 +94,29 @@ class AssessmentService
      */
     private function getFormData(int $pid, int $encounter): array
     {
-        $sql = "SELECT ld.field_id, ld.field_value, lo.title, lo.data_type, lo.list_id
-                FROM forms f
-                JOIN lbf_data ld ON f.form_id = ld.form_id
-                JOIN layout_options lo ON ld.field_id = lo.field_id 
-                    AND lo.form_id = 'LBF_MHINTAKE'
-                WHERE f.pid = ? 
-                AND f.encounter = ? 
-                AND f.formdir = 'LBF_MHINTAKE'
-                AND f.deleted = 0
-                ORDER BY lo.seq";
-
-        $result = sqlStatement($sql, [$pid, $encounter]);
+        $profile = (new AssessmentProfileService())->current();
+        $reverse = array_flip($profile['map']);
+        $sql = "SELECT ld.field_id, ld.field_value, lo.title, lo.data_type, lo.list_id,
+                       f.form_id AS source_form_id, f.id AS source_record_id, f.date AS source_date
+                FROM forms f JOIN lbf_data ld ON f.form_id = ld.form_id
+                JOIN layout_options lo ON ld.field_id = lo.field_id AND lo.form_id = ? AND lo.uor > 0
+                WHERE f.id = (SELECT f2.id FROM forms f2 WHERE f2.pid = ? AND f2.encounter = ?
+                    AND f2.formdir = ? AND f2.deleted = 0 ORDER BY f2.date DESC, f2.id DESC LIMIT 1)
+                ORDER BY lo.seq, lo.field_id";
+        $result = sqlStatement($sql, [$profile['form'], $pid, $encounter, $profile['form']]);
         $formData = [];
-
+        $this->sourceRecord = ['form' => $profile['form'], 'encounter' => $encounter];
         while ($row = sqlFetchArray($result)) {
-            $formData[$row['field_id']] = [
-                'value' => $row['field_value'],
-                'title' => $row['title'],
-                'data_type' => $row['data_type'],
-                'list_id' => $row['list_id']
-            ];
+            $canonical = $reverse[$row['field_id']] ?? $row['field_id'];
+            if (!in_array($canonical, self::FIELD_IDS, true)) { continue; }
+            if (isset($profile['map'][$canonical]) && $row['field_id'] !== $profile['map'][$canonical]) { continue; }
+            $this->sourceRecord['form_id'] = (int)$row['source_form_id'];
+            $this->sourceRecord['record_id'] = (int)$row['source_record_id'];
+            $this->sourceRecord['date'] = $row['source_date'];
+            $formData[$canonical] = ['value' => (string)$row['field_value'], 'title' => $row['title'],
+                'data_type' => $row['data_type'], 'list_id' => $row['list_id'], 'source_field' => $row['field_id'],
+                'display' => $this->getListValue((string)$row['field_value'], (string)$row['list_id'])];
         }
-
         return $formData;
     }
 
@@ -153,61 +173,61 @@ class AssessmentService
     {
         return [
             'general_appearance' => [
-                'build' => $this->getListValue($formData['appearance_build']['value'] ?? ''),
-                'hygiene' => $this->getListValue($formData['appearance_hygiene']['value'] ?? ''),
-                'dress' => $this->getListValue($formData['appearance_dress']['value'] ?? ''),
-                'grooming' => $this->getListValue($formData['appearance_grooming']['value'] ?? '')
+                'build' => $this->getListValue($formData['appearance_build']['value'] ?? '', $formData['appearance_build']['list_id'] ?? ''),
+                'hygiene' => $this->getListValue($formData['appearance_hygiene']['value'] ?? '', $formData['appearance_hygiene']['list_id'] ?? ''),
+                'dress' => $this->getListValue($formData['appearance_dress']['value'] ?? '', $formData['appearance_dress']['list_id'] ?? ''),
+                'grooming' => $this->getListValue($formData['appearance_grooming']['value'] ?? '', $formData['appearance_grooming']['list_id'] ?? '')
             ],
             'sensorium' => [
-                'orientation' => $this->getListValue($formData['orientation']['value'] ?? ''),
-                'consciousness' => $this->getListValue($formData['consciousness']['value'] ?? ''),
-                'alertness' => $this->getListValue($formData['alertness']['value'] ?? '')
+                'orientation' => $this->getListValue($formData['orientation']['value'] ?? '', $formData['orientation']['list_id'] ?? ''),
+                'consciousness' => $this->getListValue($formData['consciousness']['value'] ?? '', $formData['consciousness']['list_id'] ?? ''),
+                'alertness' => $this->getListValue($formData['alertness']['value'] ?? '', $formData['alertness']['list_id'] ?? '')
             ],
             'cognitive_function' => [
-                'concentration' => $this->getListValue($formData['concentration']['value'] ?? ''),
-                'attention' => $this->getListValue($formData['attention']['value'] ?? ''),
-                'short_term_memory' => $this->getListValue($formData['memory_short']['value'] ?? ''),
-                'long_term_memory' => $this->getListValue($formData['memory_long']['value'] ?? ''),
-                'intelligence' => $this->getListValue($formData['intelligence']['value'] ?? '')
+                'concentration' => $this->getListValue($formData['concentration']['value'] ?? '', $formData['concentration']['list_id'] ?? ''),
+                'attention' => $this->getListValue($formData['attention']['value'] ?? '', $formData['attention']['list_id'] ?? ''),
+                'short_term_memory' => $this->getListValue($formData['memory_short']['value'] ?? '', $formData['memory_short']['list_id'] ?? ''),
+                'long_term_memory' => $this->getListValue($formData['memory_long']['value'] ?? '', $formData['memory_long']['list_id'] ?? ''),
+                'intelligence' => $this->getListValue($formData['intelligence']['value'] ?? '', $formData['intelligence']['list_id'] ?? '')
             ],
             'behavioral_observations' => [
-                'eye_contact' => $this->getListValue($formData['eye_contact']['value'] ?? ''),
-                'gait' => $this->getListValue($formData['gait']['value'] ?? ''),
-                'psychomotor' => $this->getListValue($formData['psychomotor']['value'] ?? ''),
-                'cooperation' => $this->getListValue($formData['cooperation']['value'] ?? '')
+                'eye_contact' => $this->getListValue($formData['eye_contact']['value'] ?? '', $formData['eye_contact']['list_id'] ?? ''),
+                'gait' => $this->getListValue($formData['gait']['value'] ?? '', $formData['gait']['list_id'] ?? ''),
+                'psychomotor' => $this->getListValue($formData['psychomotor']['value'] ?? '', $formData['psychomotor']['list_id'] ?? ''),
+                'cooperation' => $this->getListValue($formData['cooperation']['value'] ?? '', $formData['cooperation']['list_id'] ?? '')
             ],
             'speech_language' => [
-                'rate' => $this->getListValue($formData['speech_rate']['value'] ?? ''),
-                'volume' => $this->getListValue($formData['speech_volume']['value'] ?? ''),
-                'content' => $this->getListValue($formData['speech_content']['value'] ?? ''),
-                'fluency' => $this->getListValue($formData['speech_fluency']['value'] ?? '')
+                'rate' => $this->getListValue($formData['speech_rate']['value'] ?? '', $formData['speech_rate']['list_id'] ?? ''),
+                'volume' => $this->getListValue($formData['speech_volume']['value'] ?? '', $formData['speech_volume']['list_id'] ?? ''),
+                'content' => $this->getListValue($formData['speech_content']['value'] ?? '', $formData['speech_content']['list_id'] ?? ''),
+                'fluency' => $this->getListValue($formData['speech_fluency']['value'] ?? '', $formData['speech_fluency']['list_id'] ?? '')
             ],
             'mood_affect' => [
-                'mood' => $this->getListValue($formData['mood']['value'] ?? ''),
-                'affect_range' => $this->getListValue($formData['affect_range']['value'] ?? ''),
-                'affect_amplitude' => $this->getListValue($formData['affect_amplitude']['value'] ?? ''),
-                'affect_appropriateness' => $this->getListValue($formData['affect_appropriate']['value'] ?? '')
+                'mood' => $this->getListValue($formData['mood']['value'] ?? '', $formData['mood']['list_id'] ?? ''),
+                'affect_range' => $this->getListValue($formData['affect_range']['value'] ?? '', $formData['affect_range']['list_id'] ?? ''),
+                'affect_amplitude' => $this->getListValue($formData['affect_amplitude']['value'] ?? '', $formData['affect_amplitude']['list_id'] ?? ''),
+                'affect_appropriateness' => $this->getListValue($formData['affect_appropriate']['value'] ?? '', $formData['affect_appropriate']['list_id'] ?? '')
             ],
             'thought_process' => [
-                'organization' => $this->getListValue($formData['thought_organization']['value'] ?? ''),
-                'coherence' => $this->getListValue($formData['thought_coherence']['value'] ?? ''),
-                'goal_directed' => $this->getListValue($formData['thought_goal_directed']['value'] ?? '')
+                'organization' => $this->getListValue($formData['thought_organization']['value'] ?? '', $formData['thought_organization']['list_id'] ?? ''),
+                'coherence' => $this->getListValue($formData['thought_coherence']['value'] ?? '', $formData['thought_coherence']['list_id'] ?? ''),
+                'goal_directed' => $this->getListValue($formData['thought_goal_directed']['value'] ?? '', $formData['thought_goal_directed']['list_id'] ?? '')
             ],
             'thought_content' => [
-                'delusions' => $this->getListValue($formData['delusions']['value'] ?? ''),
-                'obsessions' => $this->getListValue($formData['obsessions']['value'] ?? ''),
-                'phobias' => $this->getListValue($formData['phobias']['value'] ?? ''),
-                'suicidal_ideation' => $this->getListValue($formData['suicidal_ideation']['value'] ?? ''),
-                'homicidal_ideation' => $this->getListValue($formData['homicidal_ideation']['value'] ?? '')
+                'delusions' => $this->getListValue($formData['delusions']['value'] ?? '', $formData['delusions']['list_id'] ?? ''),
+                'obsessions' => $this->getListValue($formData['obsessions']['value'] ?? '', $formData['obsessions']['list_id'] ?? ''),
+                'phobias' => $this->getListValue($formData['phobias']['value'] ?? '', $formData['phobias']['list_id'] ?? ''),
+                'suicidal_ideation' => $this->getListValue($formData['suicidal_ideation']['value'] ?? '', $formData['suicidal_ideation']['list_id'] ?? ''),
+                'homicidal_ideation' => $this->getListValue($formData['homicidal_ideation']['value'] ?? '', $formData['homicidal_ideation']['list_id'] ?? '')
             ],
             'perceptual_disturbances' => [
-                'hallucinations_auditory' => $this->getListValue($formData['hallucinations_auditory']['value'] ?? ''),
-                'hallucinations_visual' => $this->getListValue($formData['hallucinations_visual']['value'] ?? ''),
-                'hallucinations_other' => $this->getListValue($formData['hallucinations_other']['value'] ?? '')
+                'hallucinations_auditory' => $this->getListValue($formData['hallucinations_auditory']['value'] ?? '', $formData['hallucinations_auditory']['list_id'] ?? ''),
+                'hallucinations_visual' => $this->getListValue($formData['hallucinations_visual']['value'] ?? '', $formData['hallucinations_visual']['list_id'] ?? ''),
+                'hallucinations_other' => $this->getListValue($formData['hallucinations_other']['value'] ?? '', $formData['hallucinations_other']['list_id'] ?? '')
             ],
             'insight_judgment' => [
-                'insight' => $this->getListValue($formData['insight']['value'] ?? ''),
-                'judgment' => $this->getListValue($formData['judgment']['value'] ?? '')
+                'insight' => $this->getListValue($formData['insight']['value'] ?? '', $formData['insight']['list_id'] ?? ''),
+                'judgment' => $this->getListValue($formData['judgment']['value'] ?? '', $formData['judgment']['list_id'] ?? '')
             ]
         ];
     }
@@ -222,19 +242,19 @@ class AssessmentService
     {
         return [
             'suicide_risk' => [
-                'current_ideation' => $this->getListValue($formData['suicide_current']['value'] ?? ''),
+                'current_ideation' => $this->getListValue($formData['suicide_current']['value'] ?? '', $formData['suicide_current']['list_id'] ?? ''),
                 'plan' => $formData['suicide_plan']['value'] ?? '',
                 'means' => $formData['suicide_means']['value'] ?? '',
-                'history' => $this->getListValue($formData['suicide_history']['value'] ?? ''),
+                'history' => $this->getListValue($formData['suicide_history']['value'] ?? '', $formData['suicide_history']['list_id'] ?? ''),
                 'protective_factors' => $formData['suicide_protective']['value'] ?? ''
             ],
             'violence_risk' => [
-                'current_ideation' => $this->getListValue($formData['violence_current']['value'] ?? ''),
-                'history' => $this->getListValue($formData['violence_history']['value'] ?? ''),
+                'current_ideation' => $this->getListValue($formData['violence_current']['value'] ?? '', $formData['violence_current']['list_id'] ?? ''),
+                'history' => $this->getListValue($formData['violence_history']['value'] ?? '', $formData['violence_history']['list_id'] ?? ''),
                 'triggers' => $formData['violence_triggers']['value'] ?? ''
             ],
             'substance_use' => [
-                'current_use' => $this->getListValue($formData['substance_current']['value'] ?? ''),
+                'current_use' => $this->getListValue($formData['substance_current']['value'] ?? '', $formData['substance_current']['list_id'] ?? ''),
                 'substances' => $formData['substances_used']['value'] ?? '',
                 'frequency' => $formData['substance_frequency']['value'] ?? '',
                 'impact' => $formData['substance_impact']['value'] ?? ''
@@ -268,10 +288,10 @@ class AssessmentService
     private function extractFunctionalAssessment(array $formData): array
     {
         return [
-            'work_functioning' => $this->getListValue($formData['work_functioning']['value'] ?? ''),
-            'social_functioning' => $this->getListValue($formData['social_functioning']['value'] ?? ''),
-            'family_functioning' => $this->getListValue($formData['family_functioning']['value'] ?? ''),
-            'self_care' => $this->getListValue($formData['self_care']['value'] ?? ''),
+            'work_functioning' => $this->getListValue($formData['work_functioning']['value'] ?? '', $formData['work_functioning']['list_id'] ?? ''),
+            'social_functioning' => $this->getListValue($formData['social_functioning']['value'] ?? '', $formData['social_functioning']['list_id'] ?? ''),
+            'family_functioning' => $this->getListValue($formData['family_functioning']['value'] ?? '', $formData['family_functioning']['list_id'] ?? ''),
+            'self_care' => $this->getListValue($formData['self_care']['value'] ?? '', $formData['self_care']['list_id'] ?? ''),
             'activities_daily_living' => $formData['adl_description']['value'] ?? ''
         ];
     }
@@ -288,7 +308,7 @@ class AssessmentService
             'primary_diagnosis' => $formData['primary_diagnosis']['value'] ?? '',
             'secondary_diagnoses' => $formData['secondary_diagnoses']['value'] ?? '',
             'rule_out_diagnoses' => $formData['rule_out_diagnoses']['value'] ?? '',
-            'severity' => $this->getListValue($formData['diagnosis_severity']['value'] ?? '')
+            'severity' => $this->getListValue($formData['diagnosis_severity']['value'] ?? '', $formData['diagnosis_severity']['list_id'] ?? '')
         ];
     }
 
@@ -338,7 +358,7 @@ class AssessmentService
         return [
             'personal_strengths' => $formData['personal_strengths']['value'] ?? '',
             'coping_skills' => $formData['coping_skills']['value'] ?? '',
-            'motivation_change' => $this->getListValue($formData['motivation_change']['value'] ?? ''),
+            'motivation_change' => $this->getListValue($formData['motivation_change']['value'] ?? '', $formData['motivation_change']['list_id'] ?? ''),
             'treatment_goals' => $formData['treatment_goals']['value'] ?? '',
             'available_resources' => $formData['available_resources']['value'] ?? ''
         ];
@@ -376,16 +396,22 @@ class AssessmentService
      * @param string $value List option value
      * @return string Human-readable value
      */
-    private function getListValue(string $value): string
+    private function getListValue(string $value, string $listId = ''): string
     {
-        if (empty($value)) {
-            return '';
+        if ($value === '' || $listId === '') { return $value; }
+        $labels = [];
+        foreach (explode('|', $value) as $option) {
+            $option = trim($option);
+            if ($option === '') { continue; }
+            $key = $listId . ':' . $option;
+            if (!array_key_exists($key, $this->listValueCache)) {
+                $row = sqlQuery('SELECT title FROM list_options WHERE list_id = ? AND option_id = ? LIMIT 1', [$listId, $option]);
+                $this->listValueCache[$key] = isset($row['title']) && $row['title'] !== ''
+                    ? $row['title'] : 'Unrecognized option (' . $listId . '/' . $option . ')';
+            }
+            $labels[] = $this->listValueCache[$key];
         }
-
-        // For now, return the value as-is
-        // In a full implementation, you would query the list_options table
-        // to get the human-readable title for the option
-        return $value;
+        return implode('; ', $labels);
     }
 
     /**
@@ -396,108 +422,42 @@ class AssessmentService
      */
     public function formatForAI(array $assessmentData): string
     {
+        // Only the fields explicitly extracted by this module are included. Keep
+        // nested risk details, medication/allergy history and documented negatives.
+        $sections = [
+            'patient_info' => 'PATIENT', 'diagnoses' => 'CHART PROBLEM LIST - REQUIRES CLINICIAN VERIFICATION',
+            'presenting_problem' => 'PRESENTING PROBLEM', 'mental_status_exam' => 'MENTAL STATUS EXAMINATION',
+            'risk_assessment' => 'RISK ASSESSMENT', 'clinical_history' => 'CLINICAL HISTORY',
+            'functional_assessment' => 'FUNCTIONAL ASSESSMENT', 'diagnostic_impressions' => 'DIAGNOSTIC IMPRESSIONS',
+            'treatment_history' => 'TREATMENT HISTORY', 'psychosocial_factors' => 'PSYCHOSOCIAL FACTORS',
+            'strengths_resources' => 'STRENGTHS AND RESOURCES'
+        ];
         $formatted = "MENTAL HEALTH ASSESSMENT DATA:\n\n";
-
-        // Patient Information
-        if (!empty($assessmentData['patient_info'])) {
-            $patient = $assessmentData['patient_info'];
-            $formatted .= "PATIENT: Age: {$patient['age']}, Gender: {$patient['gender']}, Race: {$patient['race']}\n\n";
-        }
-
-        // Current Diagnoses
-        if (!empty($assessmentData['diagnoses'])) {
-            $formatted .= "CURRENT DIAGNOSES:\n";
-            foreach ($assessmentData['diagnoses'] as $diagnosis) {
-                $formatted .= "- {$diagnosis['title']}";
-                if (!empty($diagnosis['diagnosis_code'])) {
-                    $formatted .= " ({$diagnosis['diagnosis_code']})";
-                }
-                $formatted .= "\n";
+        foreach ($sections as $key => $heading) {
+            $data = $assessmentData[$key] ?? [];
+            if ($key === 'patient_info') {
+                $data = array_intersect_key((array)$data, array_flip(['age', 'gender', 'race']));
             }
-            $formatted .= "\n";
+            $lines = $this->formatAssessmentFields((array)$data);
+            if ($lines !== '') { $formatted .= $heading . ":\n" . $lines . "\n"; }
         }
-
-        // Presenting Problem
-        if (!empty($assessmentData['presenting_problem']['chief_complaint'])) {
-            $formatted .= "PRESENTING PROBLEM:\n";
-            $formatted .= "Chief Complaint: {$assessmentData['presenting_problem']['chief_complaint']}\n";
-            if (!empty($assessmentData['presenting_problem']['onset'])) {
-                $formatted .= "Onset: {$assessmentData['presenting_problem']['onset']}\n";
-            }
-            if (!empty($assessmentData['presenting_problem']['current_stressors'])) {
-                $formatted .= "Current Stressors: {$assessmentData['presenting_problem']['current_stressors']}\n";
-            }
-            $formatted .= "\n";
-        }
-
-        // Mental Status Exam Summary
-        $formatted .= "MENTAL STATUS EXAMINATION:\n";
-        $mse = $assessmentData['mental_status_exam'] ?? [];
-        
-        if (!empty($mse['mood_affect']['mood'])) {
-            $formatted .= "Mood: {$mse['mood_affect']['mood']}\n";
-        }
-        if (!empty($mse['cognitive_function']['concentration'])) {
-            $formatted .= "Concentration: {$mse['cognitive_function']['concentration']}\n";
-        }
-        if (!empty($mse['insight_judgment']['insight'])) {
-            $formatted .= "Insight: {$mse['insight_judgment']['insight']}\n";
-        }
-        $formatted .= "\n";
-
-        // Risk Assessment
-        $risk = $assessmentData['risk_assessment'] ?? [];
-        if (!empty($risk['suicide_risk']['current_ideation']) || !empty($risk['violence_risk']['current_ideation'])) {
-            $formatted .= "RISK ASSESSMENT:\n";
-            if (!empty($risk['suicide_risk']['current_ideation'])) {
-                $formatted .= "Suicide Risk: {$risk['suicide_risk']['current_ideation']}\n";
-            }
-            if (!empty($risk['violence_risk']['current_ideation'])) {
-                $formatted .= "Violence Risk: {$risk['violence_risk']['current_ideation']}\n";
-            }
-            $formatted .= "\n";
-        }
-
-        // Diagnostic Impressions
-        if (!empty($assessmentData['diagnostic_impressions']['primary_diagnosis'])) {
-            $formatted .= "DIAGNOSTIC IMPRESSIONS:\n";
-            $formatted .= "Primary: {$assessmentData['diagnostic_impressions']['primary_diagnosis']}\n";
-            if (!empty($assessmentData['diagnostic_impressions']['secondary_diagnoses'])) {
-                $formatted .= "Secondary: {$assessmentData['diagnostic_impressions']['secondary_diagnoses']}\n";
-            }
-            $formatted .= "\n";
-        }
-
-        // Functional Assessment
-        $functional = $assessmentData['functional_assessment'] ?? [];
-        if (!empty($functional['work_functioning']) || !empty($functional['social_functioning'])) {
-            $formatted .= "FUNCTIONAL ASSESSMENT:\n";
-            if (!empty($functional['work_functioning'])) {
-                $formatted .= "Work Functioning: {$functional['work_functioning']}\n";
-            }
-            if (!empty($functional['social_functioning'])) {
-                $formatted .= "Social Functioning: {$functional['social_functioning']}\n";
-            }
-            $formatted .= "\n";
-        }
-
-        // Treatment History
-        if (!empty($assessmentData['treatment_history']['previous_therapy'])) {
-            $formatted .= "TREATMENT HISTORY:\n";
-            $formatted .= "Previous Therapy: {$assessmentData['treatment_history']['previous_therapy']}\n";
-            if (!empty($assessmentData['treatment_history']['treatment_response'])) {
-                $formatted .= "Treatment Response: {$assessmentData['treatment_history']['treatment_response']}\n";
-            }
-            $formatted .= "\n";
-        }
-
-        // Strengths and Goals
-        if (!empty($assessmentData['strengths_resources']['treatment_goals'])) {
-            $formatted .= "TREATMENT GOALS:\n";
-            $formatted .= $assessmentData['strengths_resources']['treatment_goals'] . "\n\n";
-        }
-
         return $formatted;
+    }
+
+    private function formatAssessmentFields(array $data, string $prefix = ''): string
+    {
+        $text = '';
+        foreach ($data as $key => $value) {
+            $label = is_int($key) ? 'Item ' . ($key + 1) : ucwords(str_replace('_', ' ', $key));
+            $path = $prefix === '' ? $label : $prefix . ' / ' . $label;
+            if (is_array($value)) {
+                $text .= $this->formatAssessmentFields($value, $path);
+            } elseif ($value !== null && $value !== '') {
+                $display = is_bool($value) ? ($value ? 'Yes' : 'No') : (string)$value;
+                $text .= $path . ': ' . $display . "\n";
+            }
+        }
+        return $text;
     }
 
     /**

@@ -26,9 +26,21 @@ require_once dirname(__DIR__, 4) . "/globals.php";
 // Include menu integration functions
 require_once dirname(__DIR__) . "/menu_integration.php";
 
-// Check authentication and permissions
-if (!hasTreatmentPlannerAccess()) {
-    echo "<div class='alert alert-danger'>" . xlt('Access denied. Please log in to access the Treatment Planner.') . "</div>";
+// Distinguish an expired login from an authenticated user without medical access.
+try {
+    \OpenEMR\Modules\TreatmentPlanner\Services\AccessService::assertModuleAccess();
+} catch (\Throwable $e) {
+    $status = $e instanceof \OpenEMR\Modules\TreatmentPlanner\Exceptions\UserFacingException ? $e->getCode() : 503;
+    http_response_code(in_array($status, [401, 403], true) ? $status : 503);
+    echo '<div class="alert alert-danger">' . text(\OpenEMR\Modules\TreatmentPlanner\Services\ErrorService::publicMessage($e, 'module_access')) . '</div>';
+    exit;
+}
+
+try {
+    \OpenEMR\Modules\TreatmentPlanner\Services\SchemaService::assertReady();
+} catch (\Throwable $e) {
+    http_response_code(503);
+    echo '<div class="alert alert-warning">' . text(\OpenEMR\Modules\TreatmentPlanner\Services\ErrorService::publicMessage($e, 'module_route')) . '</div>';
     exit;
 }
 
@@ -40,10 +52,14 @@ const MODULE_ROUTE = "/interface/modules/custom_modules/oe-module-treatment-plan
 
 $router
     ->get($webroot . MODULE_ROUTE . "/dashboard", [Dashboard::class, 'indexAction'])
+    ->get($webroot . MODULE_ROUTE . "/treatment/progress", [\OpenEMR\Modules\TreatmentPlanner\Controllers\ProgressController::class, 'indexAction'])
+    ->post($webroot . MODULE_ROUTE . "/treatment/progress", [\OpenEMR\Modules\TreatmentPlanner\Controllers\ProgressController::class, 'indexAction'])
     ->get($webroot . MODULE_ROUTE . "/treatment/list", [TreatmentController::class, 'listAction'])
+    ->get($webroot . MODULE_ROUTE . "/treatment/history", [TreatmentController::class, 'historyAction'])
     ->get($webroot . MODULE_ROUTE . "/treatment/view", [TreatmentController::class, 'viewAction'])
     ->get($webroot . MODULE_ROUTE . "/treatment/create", [TreatmentController::class, 'createAction'])
     ->post($webroot . MODULE_ROUTE . "/treatment/create", [TreatmentController::class, 'createAction'])
+    ->post($webroot . MODULE_ROUTE . "/treatment/revise", [TreatmentController::class, 'reviseAction'])
     ->get($webroot . MODULE_ROUTE . "/treatment/edit", [TreatmentController::class, 'editAction'])
     ->post($webroot . MODULE_ROUTE . "/treatment/edit", [TreatmentController::class, 'editAction'])
     ->post($webroot . MODULE_ROUTE . "/treatment/finalize", [TreatmentController::class, 'finalizeAction'])
@@ -52,5 +68,9 @@ $router
 try {
     echo $router->resolve($_SERVER['REQUEST_URI'], strtolower($_SERVER['REQUEST_METHOD']));
 } catch (RouteNotFoundException $e) {
-    echo $e->getMessage();
+    http_response_code(404);
+    echo text(\OpenEMR\Modules\TreatmentPlanner\Services\ErrorService::publicMessage($e, 'module_route'));
+} catch (\Throwable $e) {
+    http_response_code(500);
+    echo text(\OpenEMR\Modules\TreatmentPlanner\Services\ErrorService::publicMessage($e, 'module_route'));
 }
